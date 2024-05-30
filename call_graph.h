@@ -22,6 +22,8 @@ void call_graph_insert(struct call_graph* graph, const char* callee, const char*
 
 void call_graph_dump(struct call_graph* graph, const char* file_name);
 
+struct call_graph* call_graph_load(const char* file_name);;
+
 void call_graph_dump_dot(struct call_graph* graph, const char* file_name);
 
 bool call_graph_contains_call(struct call_graph* graph, const char* callee, const char* caller);

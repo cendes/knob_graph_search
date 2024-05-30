@@ -29,6 +29,9 @@
 //TODO: create tree database for already visited func variables with different struct hierarchy
 //TODO: for returns, check if expression is boolean
 
+static list* start_knob_var_search(const char* var_name,
+                                   struct list* struct_hierarchy);
+
 static struct list* get_local_var_refs_from_src(struct list* var_refs,
                                                 const char* var_name,
                                                 const char* func_name,
@@ -46,94 +49,153 @@ static char* generate_struct_key(struct list* struct_hierarchy);
 
 static hash_map func_vars_visited = map_create();
 
+struct call_graph* call_graph = call_graph_create();
+
 struct func_var_entry {
   struct list* return_hierarchy;
   struct list* output_args;
 };
 
 int main(int argc, char* argv[]) {
+  if (argc < 3) {
+    printf("Usage: ./knob_search KNOB_NAME LINUX_SOURCE_DIR [OUPUT_DIR]\n");
+    return EXIT_FAILURE;
+  }
+  char* knob_name = argv[1];
+  char* linux_src_dir = argv[2];
+  char* output_dir;
+  if (argc >= 4) {
+    output_dir = argv[3];
+  } else {
+    output_dir = ".";
+  }
+  
   check_out_of_scope = map_create();
-  chdir("../linux-5.15.152");
+  char cwd[4096];
+  getcwd(cwd, 4096);
+  int ret = chdir(linux_src_dir);
+  if (ret < 0) {
+    perror("Could not find Linux souce code directory: ");
+    return EXIT_FAILURE;
+  }
+  
 
   struct list* struct_hierarchy;
-  char* var_name = var_find_knob_var("busy_poll", &struct_hierarchy);
-
-  struct list* return_struct_hierarchy;
-  struct list* output_vars;
-  struct list* funcs = var_find_func_refs(var_name, struct_hierarchy,
-                                          &return_struct_hierarchy, &output_vars);
-  struct call_graph* graph = call_graph_create();
-  for (struct list_node* curr = funcs->head; curr != NULL; curr = curr->next) {
-    printf("%s, ", (char*) curr->payload);
-    call_graph_add_root(graph, (char*) curr->payload);
+  char* var_name = var_find_knob_var(knob_name, &struct_hierarchy);
+  if (var_name == NULL) {
+    printf("Could not find variable for knob %s\n", knob_name);
+    return EXIT_SUCCESS;
   }
-  printf("\n");
-  expand_call_graph(graph, funcs);
-  call_graph_dump(graph, "busy_poll");
-  call_graph_dump_dot(graph, "busy_poll.dot");
+  struct list* leaf_funcs = start_knob_var_search(var_name, struct_hierarchy);
+  
+  char filename[4096];
+  sprintf(filename, "%s/%s/partial_graph_%s.dot", cwd, output_dir, knob_name);
+  call_graph_dump_dot(call_graph, filename);
+  
+  expand_call_graph(call_graph, leaf_funcs);
+
+  sprintf(filename, "%s/%s/%s", cwd, output_dir, knob_name);
+  call_graph_dump(call_graph, filename);
+  sprintf(filename, "%s/%s/%s.dot", cwd, output_dir, knob_name);
+  call_graph_dump_dot(call_graph, filename);
   return EXIT_SUCCESS;
 }
 
 char* var_find_knob_var(const char* knob, struct list** struct_hierarchy) {
   char cmd[256];
   sprintf(cmd, "cscope -d -L4 =\\ \\\"%s\\\"", knob);
-  FILE* f = popen(cmd, "r");
-  if (f == NULL) {
-    perror("Failed to run cscope query: ");
-    return NULL;
+  struct list* results = utils_get_cscope_output(cmd);
+  for (struct list_node* curr = results->head; curr != NULL; curr = curr->next) {
+    char* result = (char*) curr->payload;
+    if (strstr(result, ".procname") != NULL) {
+      char** result_arr;
+      utils_split_str(result, &result_arr);
+      free(result);
+    
+      char* file_path = result_arr[0];
+      int line_num = atoi(result_arr[2]);
+      char* var_line = utils_read_file_line(file_path, line_num);
+      utils_free_str_arr(result_arr);
+      if (strstr(var_line, ".data") != NULL) {
+        char** var_line_arr;
+        utils_split_str(var_line, &var_line_arr);
+        free(var_line);
+        
+        char* trimmed_var_name = utils_trim_str(var_line_arr[1]);
+        char* var_name = trimmed_var_name;
+        utils_truncate_str(var_name, -1);
+        if (strcmp(var_name, "NULL") != 0) {
+          if (var_name[0] == '&'){
+            var_name++;
+          }
+          if (var_name != trimmed_var_name) {
+            char* new_var_name = (char*) malloc(strlen(var_name) + 1);
+            strncpy(new_var_name, var_name, strlen(var_name) + 1);
+            utils_free_if_different(trimmed_var_name, var_line_arr[1]);
+            var_name = new_var_name;
+          }
+          printf("%s\n", var_name);
+          
+          char* root_var_name;
+          *struct_hierarchy = struct_get_struct_hierarchy(var_name, &root_var_name);
+          
+          utils_free_if_both_different(var_name, var_line_arr[1], root_var_name);
+          if (root_var_name == var_line_arr[1]) {
+            root_var_name = (char*) malloc(strlen(var_line_arr[1]) + 1);
+            strncpy(root_var_name, var_line_arr[1], strlen(var_line_arr[1]) + 1);
+          }
+          utils_free_str_arr(var_line_arr);
+          return root_var_name;
+        }
+      }
+    }
   }
 
-  char* result = NULL;
-  size_t len = 0;
-  int ret = getline(&result, &len, f);
-  if (ret < 0) {
-    pclose(f);
-    free(result);
-    perror("Failed to read cscope output: ");
-    return NULL;
-  }
-  pclose(f);
-
-  char** result_arr;
-  utils_split_str(result, &result_arr);
-  free(result);
-  
-  char* file_path = result_arr[0];
-  int line_num = atoi(result_arr[2]);
-  char* var_line = utils_read_file_line(file_path, line_num);
-  utils_free_str_arr(result_arr);
-  
-  char** var_line_arr;
-  utils_split_str(var_line, &var_line_arr);
-  free(var_line);
-  
-  char* trimmed_var_name = utils_trim_str(var_line_arr[1]);
-  char* var_name = trimmed_var_name;
-  utils_truncate_str(var_name, -1);
-  if (var_name[0] == '&'){
-    var_name++;
-  }
-  if (var_name != trimmed_var_name) {
-    char* new_var_name = (char*) malloc(strlen(var_name) + 1);
-    strncpy(new_var_name, var_name, strlen(var_name) + 1);
-    utils_free_if_different(trimmed_var_name, var_line_arr[1]);
-    var_name = new_var_name;
-  }
-  printf("%s\n", var_name);
-
-  char* root_var_name;
-  *struct_hierarchy = struct_get_struct_hierarchy(var_name, &root_var_name);
-
-  utils_free_if_both_different(var_name, var_line_arr[1], root_var_name);
-  if (root_var_name == var_line_arr[1]) {
-    root_var_name = (char*) malloc(strlen(var_line_arr[1]) + 1);
-    strncpy(root_var_name, var_line_arr[1], strlen(var_line_arr[1]) + 1);
-  }
-  utils_free_str_arr(var_line_arr);
-  return root_var_name;
+  return NULL;
 }
 
-struct list* var_find_func_refs(const char* var_name, struct list* struct_hierarchy,
+static list* start_knob_var_search(const char* var_name,
+                                   struct list* struct_hierarchy) {
+  char cmd[256];
+  sprintf(cmd, "cscope -d -L0 %s", var_name);
+  struct list* var_refs = utils_get_cscope_output(cmd);
+  struct list* leaf_funcs = list_create();
+  for (struct list_node* curr = var_refs->head; curr != NULL; curr = curr->next) {
+    char* var_ref = (char*) curr->payload;
+    char** var_ref_arr;
+    size_t var_ref_arr_len = utils_split_str(var_ref, (char***) &var_ref_arr);
+    if (strcmp(var_ref_arr[1], "<global>") != 0) {
+      char* leaf_func = (char*) malloc(strlen(var_ref_arr[1]) + 1);
+      strncpy(leaf_func, var_ref_arr[1], strlen(var_ref_arr[1]) + 1);
+      list_append(leaf_funcs, leaf_func);
+    }
+    utils_free_str_arr(var_ref_arr);
+  }
+
+  hash_map func_ptrs = map_create();
+  struct list* return_struct_hierarchy;
+  struct list* output_vars;
+  var_get_func_refs(var_name, struct_hierarchy, var_refs, true, NULL, func_ptrs,
+                    &return_struct_hierarchy, &output_vars);
+  list_free(struct_hierarchy);
+  map_free(func_ptrs);
+
+  struct list* actual_leaf_funcs = list_create();
+  for (struct list_node* curr_func = leaf_funcs->head; curr_func != NULL;
+       curr_func = curr_func->next) {
+    char* leaf_func = (char*) curr_func->payload;
+    if (map_contains(call_graph->nodes, leaf_func)) {
+      list_append(actual_leaf_funcs, leaf_func);
+    } else {
+      free(leaf_func);
+    }
+  }
+  list_free_nodes(leaf_funcs);
+
+  return actual_leaf_funcs;
+}
+
+bool var_find_func_refs(const char* var_name, struct list* struct_hierarchy,
                                 struct list** return_struct_hierarchy,
                                 struct list** output_vars) {
   char cmd[256];
@@ -141,27 +203,21 @@ struct list* var_find_func_refs(const char* var_name, struct list* struct_hierar
   struct list* var_refs = utils_get_cscope_output(cmd);
 
   hash_map func_ptrs = map_create();
-  struct list* funcs = var_get_func_refs(var_name, struct_hierarchy, var_refs,
-                                         true, NULL, func_ptrs,
-                                         return_struct_hierarchy, output_vars);
+  bool has_match = var_get_func_refs(var_name, struct_hierarchy, var_refs,
+                                     true, NULL, func_ptrs,
+                                     return_struct_hierarchy, output_vars);
 
   map_free(func_ptrs);
   list_free_nodes(var_refs);
-  return funcs;
+  return has_match;
 }
 
-struct list* var_get_func_refs(const char* var_name, struct list* struct_hierarchy,
-                               struct list* var_refs, bool is_global,
-                               const char* func_name, hash_map func_ptrs,
-                               struct list** return_struct_hierarchy,
-                               struct list** output_vars) {
-  //if (func_name != NULL &&
-  //    var_contains_func_var_visited(func_name, var_name, return_struct_hierarchy,
-  //                                  output_vars)) {
-  //  return list_create();
-  //}
-  
-  struct list* funcs = list_create();
+bool var_get_func_refs(const char* var_name, struct list* struct_hierarchy,
+                       struct list* var_refs, bool is_global,
+                       const char* func_name, hash_map func_ptrs,
+                       struct list** return_struct_hierarchy,
+                       struct list** output_vars) { 
+  bool has_match = false;
   *output_vars = list_create();
   *return_struct_hierarchy = NULL;
   bool get_func_from_ref = func_name == NULL;
@@ -184,7 +240,7 @@ struct list* var_get_func_refs(const char* var_name, struct list* struct_hierarc
     utils_free_if_different(san_var_ref, full_var_ref);
     var_ref = full_var_ref;
 
-    if (strcmp(func_name, "devinet_init_net") == 0) {
+    if (strcmp(func_name, "devlink_alloc_ns") == 0) {
       int test = 1;
     }
     
@@ -199,26 +255,26 @@ struct list* var_get_func_refs(const char* var_name, struct list* struct_hierarc
       }
       printf("\n");
       // TODO: remove false positives for function calls and assignments
-      struct list* additional_funcs;
+      //struct list* additional_funcs;
       struct list* additional_output_args;
       struct list* return_hierarchy;
       if (check_is_func(var_ref) && !check_is_var_declaration(func_name, var_ref)) {
-        additional_funcs = func_handle_func_call(var_name, struct_hierarchy,
-                                                 var_ref, var_ref_arr,
-                                                 var_ref_arr_len, func_name,
-                                                 func_ptrs, &return_hierarchy,
-                                                 &additional_output_args);
+        has_match |= func_handle_func_call(var_name, struct_hierarchy,
+                                           var_ref, var_ref_arr,
+                                           var_ref_arr_len, func_name,
+                                           func_ptrs, &return_hierarchy,
+                                           &additional_output_args);
       } else {
-        additional_funcs = assignment_handle_var_assignment(func_name, var_ref,
-                                                            var_ref_arr,
-                                                            var_ref_arr_len,
-                                                            var_name,
-                                                            struct_hierarchy,
-                                                            false, func_ptrs,
-                                                            &return_hierarchy,
-                                                            &additional_output_args);
+        has_match |= assignment_handle_var_assignment(func_name, var_ref,
+                                                      var_ref_arr,
+                                                      var_ref_arr_len,
+                                                      var_name,
+                                                      struct_hierarchy,
+                                                      false, func_ptrs,
+                                                      &return_hierarchy,
+                                                      &additional_output_args);
       }
-      var_func_extend_unique(funcs, additional_funcs);
+      //var_func_extend_unique(funcs, additional_funcs);
       var_out_arg_extend_unique(*output_vars, additional_output_args); // TODO: properly free additional_output_args
 
       struct list_node* return_match_node;
@@ -233,14 +289,12 @@ struct list* var_get_func_refs(const char* var_name, struct list* struct_hierarc
       }
 
       struct list* struct_matches = struct_get_struct_matches(var_ref, var_name, struct_hierarchy);
-      if (!list_contains_str(funcs, func_name) &&
+      if (/*!list_contains_str(funcs, func_name) && */
           struct_has_full_match(struct_matches, struct_hierarchy->len == 0)) { // TODO: check this
         char* func_match = (char*) malloc(strlen(func_name) + 1);
         strncpy(func_match, func_name, strlen(func_name) + 1);
-        if (func_match == NULL) {
-          int test = 1;
-        }
-        list_append(funcs, func_match);
+        call_graph_add_root(call_graph, func_match);
+        has_match = true;
       }
       list_free_nodes(struct_matches);
     }
@@ -248,12 +302,15 @@ struct list* var_get_func_refs(const char* var_name, struct list* struct_hierarc
     free(var_ref);
   }
 
-  return funcs;
+  return has_match;
 }
 
 struct list* var_get_local_var_refs(const char* var_name, const char* func_name,
                                     const char** statement_arr, int statement_arr_len,
                                     bool is_func_declaration) {
+  if (strcmp(var_name, "x") == 0 && strcmp(func_name, "HASH_MIX") == 0) {
+    int test = 1;
+  }
   const char* original_var_name = var_name;
   var_name = struct_get_root_name(var_name);
   char cmd[256];
@@ -278,7 +335,7 @@ struct list* var_get_local_var_refs(const char* var_name, const char* func_name,
       list_append(non_local_refs, var_ref);
     }
 
-    if (is_func_declaration && strcmp(var_ref_arr[0], statement_arr[0]) == 0) {
+    if (strcmp(var_ref_arr[0], statement_arr[0]) == 0) {
       list_append(src_file_refs, var_ref);
     } else {
       list_append(non_src_refs, var_ref);
@@ -343,6 +400,9 @@ static struct list* get_local_var_refs_from_src(struct list* var_refs, const cha
     char** var_ref_arr;
     utils_split_str(var_ref, (char***) &var_ref_arr);
     int ref_line = atoi(var_ref_arr[2]);
+    if (ref_line == 8916) {
+      int test = 1;
+    }
     if (strcmp(var_ref_arr[0], src_file) == 0 && func_start_line <= ref_line &&
         func_end_line >= ref_line) {
       is_local_var = get_local_ref(var_name, var_ref, (const char**) var_ref_arr,

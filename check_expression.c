@@ -227,15 +227,24 @@ bool check_is_var_declaration(const char* var_name, const char* var_ref) {
   size_t i = 0;
   size_t consecutive_tokens = 0;
   bool has_declaration = false;
-  bool is_after_comma;
+  bool is_define_arg = false;
+  bool is_after_parenthesis = false;
+  bool is_after_comma = false;
   while (i < strlen(var_ref)) {
     size_t token_start = i;
+    bool has_space = false;
     while (token_start < strlen(var_ref) &&
            (isspace(var_ref[token_start]) ||
             utils_char_in_array(";,()[=*", var_ref[token_start], 7))) {
       if (utils_char_in_array(";,()[=", var_ref[token_start], 6)) {
-        if (var_ref[token_start] == ',') {
+        if (isspace(var_ref[token_start])) {
+          has_space = true;
+        } else if (var_ref[token_start] == ',') {
           is_after_comma = true;
+        } else if (var_ref[token_start] == '(' && !has_space) {
+          is_after_parenthesis = true;
+        } else if (var_ref[token_start] == ')') {
+          is_define_arg = false;
         }
         consecutive_tokens = 0;
       }
@@ -257,11 +266,16 @@ bool check_is_var_declaration(const char* var_name, const char* var_ref) {
     char* token = (char*) malloc(token_len + 1);
     strncpy(token, var_ref + token_start, token_len);
     token[token_len] = '\0';
-    if (strlen(token) > 0 &&
+    if (strlen(token) > 0 && strcmp(token, "return") != 0 &&
+        !utils_str_in_array(C_TYPE_MODIFIERS, token,
+                            UTILS_SIZEOF_ARR(C_TYPE_MODIFIERS)) &&
         (strcmp(token, "#define") == 0 || check_is_valid_varname(token)) &&
         !utils_isnumeric(token)) {
-      if ((consecutive_tokens > 0 || (has_declaration && is_after_comma))
-          && strcmp(token, var_name) == 0) {
+      if (strcmp(token, "#define") == 0) {
+        is_define_arg = true;
+      } else if ((consecutive_tokens > 0 || (has_declaration && is_after_comma) ||
+                  (is_define_arg && (is_after_parenthesis || is_after_comma)))
+                 && strcmp(token, var_name) == 0) {
         free(token);
         return true;
       }

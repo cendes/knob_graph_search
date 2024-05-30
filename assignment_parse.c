@@ -18,16 +18,16 @@ static struct list* globals_visited = list_create();
 static bool is_out_arg_assignment(const char* var_name, const char** var_ref_arr,
                                   size_t var_ref_arr_len, const char* func_name);
 
-struct list* assignment_handle_var_assignment(const char* func_name,
-                                              const char* var_ref,
-                                              const char** var_ref_arr,
-                                              size_t var_ref_arr_len,
-                                              const char* var_name,
-                                              struct list* struct_hierarchy,
-                                              bool is_return_assingment,
-                                              hash_map func_ptrs,
-                                              struct list** return_hierarchy,
-                                              struct list** output_args) {
+bool assignment_handle_var_assignment(const char* func_name,
+                                      const char* var_ref,
+                                      const char** var_ref_arr,
+                                      size_t var_ref_arr_len,
+                                      const char* var_name,
+                                      struct list* struct_hierarchy,
+                                      bool is_return_assingment,
+                                      hash_map func_ptrs,
+                                      struct list** return_hierarchy,
+                                      struct list** output_args) {
   bool out_arg_assignment;
   const char* assignment_rhs;
   char* assigned_var = assignment_get_assignment_var(func_name, var_ref, var_ref_arr,
@@ -38,7 +38,7 @@ struct list* assignment_handle_var_assignment(const char* func_name,
   if (assigned_var == NULL) {
     *output_args = list_create();
     *return_hierarchy = NULL;
-    return list_create();
+    return false;
   }
 
   if (strcmp(assigned_var, "tbl[0].data") == 0) {
@@ -57,7 +57,7 @@ struct list* assignment_handle_var_assignment(const char* func_name,
     if (struct_matches->len == 0) {
       *output_args = list_create();
       *return_hierarchy = NULL;
-      return list_create();
+      return false;
     }
     struct list_node* match_start = struct_get_highest_match(struct_matches);
     hierarchy_matches = list_copy(struct_hierarchy, match_start);
@@ -75,14 +75,14 @@ struct list* assignment_handle_var_assignment(const char* func_name,
       *output_args = list_create();
     }
     utils_free_if_different(assigned_var, assigned_root);
-    return list_create();
+    return false;
   }
 
   var_insert_func_var_visited(func_name, assigned_root, struct_hierarchy, NULL, NULL);
-  struct list* funcs = assignment_get_assigned_var_funcs(func_name, assigned_root,
-                                                        struct_hierarchy, var_ref_arr,
-                                                        var_ref_arr_len, func_ptrs,
-                                                        return_hierarchy, output_args);
+  bool has_match = assignment_get_assigned_var_funcs(func_name, assigned_root,
+                                                     struct_hierarchy, var_ref_arr,
+                                                     var_ref_arr_len, func_ptrs,
+                                                     return_hierarchy, output_args);
   if (out_arg_assignment) {
     assignment_append_out_arg(*output_args, assigned_root, struct_hierarchy);
   }
@@ -91,7 +91,7 @@ struct list* assignment_handle_var_assignment(const char* func_name,
   //list_free(assigned_struct_hierarchy); // TODO: what is the issue with this?
   list_free_nodes(hierarchy_matches);
   //list_free_nodes(struct_hierarchy);
-  return funcs;
+  return has_match;
 }
 
 char* assignment_get_assignment_var(const char* func_name, const char* var_ref,
@@ -181,15 +181,16 @@ static bool is_out_arg_assignment(const char* var_name, const char** var_ref_arr
   return false;
 }
 
-struct list* assignment_get_assigned_var_funcs(const char* func_name,
-                                               char* assigned_var,
-                                               struct list* struct_hierarchy,
-                                               const char** var_ref_arr,
-                                               size_t var_ref_arr_len,
-                                               hash_map func_ptrs,
-                                               struct list** return_hierarchy,
-                                               struct list** output_args) {
-  struct list* additional_funcs = list_create();
+bool assignment_get_assigned_var_funcs(const char* func_name,
+                                       char* assigned_var,
+                                       struct list* struct_hierarchy,
+                                       const char** var_ref_arr,
+                                       size_t var_ref_arr_len,
+                                       hash_map func_ptrs,
+                                       struct list** return_hierarchy,
+                                       struct list** output_args) {
+  bool has_match = false;
+  //struct list* additional_funcs = list_create();
   *output_args = list_create(); // TODO: this leaks memory
   *return_hierarchy = NULL;
 
@@ -199,20 +200,21 @@ struct list* assignment_get_assigned_var_funcs(const char* func_name,
                                                             var_ref_arr_len, false);
     char* root_assignment_name = struct_get_root_name(assigned_var);
     if (assigned_var_refs == NULL) {
+      // TODO: remove this check
       if (!list_contains_str(globals_visited, root_assignment_name)) {
-        additional_funcs = var_find_func_refs(root_assignment_name, struct_hierarchy,
-                                              return_hierarchy, output_args);
+        has_match = var_find_func_refs(root_assignment_name, struct_hierarchy,
+                                       return_hierarchy, output_args);
         list_append(globals_visited, root_assignment_name);
       }
     } else {
-      additional_funcs = var_get_func_refs(root_assignment_name, struct_hierarchy,
-                                           assigned_var_refs, false, func_name,
-                                           func_ptrs, return_hierarchy, output_args);
+      has_match = var_get_func_refs(root_assignment_name, struct_hierarchy,
+                                    assigned_var_refs, false, func_name,
+                                    func_ptrs, return_hierarchy, output_args);
       list_free_nodes(assigned_var_refs);
     }
   }
 
-  return additional_funcs;
+  return has_match;
 }
 
 void assignment_append_out_arg(struct list* out_args, char* arg_name,

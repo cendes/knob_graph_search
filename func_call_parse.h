@@ -15,13 +15,13 @@ extern hash_map visited_func_decls;
 
 struct list* func_get_curr_func_arg_names(const char* func_name);
 
-struct list* func_handle_func_call(const char* var_name,
-                                   struct list* struct_hierarchy,
-                                   const char* var_ref, const char** var_ref_arr,
-                                   size_t var_ref_arr_len, const char* func_name,
-                                   hash_map func_ptrs,
-                                   struct list** return_struct_hierarchy,
-                                   struct list** output_vars);
+bool func_handle_func_call(const char* var_name,
+                           struct list* struct_hierarchy,
+                           const char* var_ref, const char** var_ref_arr,
+                           size_t var_ref_arr_len, const char* func_name,
+                           hash_map func_ptrs,
+                           struct list** return_struct_hierarchy,
+                           struct list** output_vars);
 
 struct list* func_get_func_call_args(const char* var_name,
                                      struct list* struct_hierarchy,

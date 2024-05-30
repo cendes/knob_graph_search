@@ -29,7 +29,7 @@ char* token_get_func_name(const char* var_ref, size_t args_start_index) {
   ssize_t func_name_start = args_start_index - 1;
   while (func_name_start >= 0 &&
          (check_is_valid_varname_char(var_ref[func_name_start]) ||
-          utils_char_in_array("*.>", var_ref[func_name_start], 3))) {
+          utils_char_in_array(".>", var_ref[func_name_start], 2))) {
     if (var_ref[func_name_start] == '>' && func_name_start > 0 &&
         var_ref[func_name_start - 1] == '-') {
       func_name_start -= 2;
@@ -44,9 +44,7 @@ char* token_get_func_name(const char* var_ref, size_t args_start_index) {
   func_name[func_name_len] = '\0';
 
   if (func_name_len == 0 ||
-      utils_str_in_array(C_KEYWORDS, func_name, UTILS_SIZEOF_ARR(C_KEYWORDS)) ||
-      strchr(func_name, '*') != NULL || strchr(func_name, '.') != NULL ||
-      strstr(func_name, "->") != NULL) { // Ignore function pointers for now
+      utils_str_in_array(C_KEYWORDS, func_name, UTILS_SIZEOF_ARR(C_KEYWORDS))) {
     free(func_name);
     return NULL;
   } else {

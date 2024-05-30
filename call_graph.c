@@ -58,6 +58,10 @@ bool call_graph_contains_call(struct call_graph* graph, const char* callee, cons
 void call_graph_dump(struct call_graph* graph, const char* file_name) {
   struct list* funcs = graph->func_names;
   FILE* f = fopen(file_name, "w");
+  if (f == NULL) {
+    perror("Could not create file: ");
+    return;
+  }
   fwrite(&funcs->len, sizeof(size_t), 1, f);
   for (struct list_node* curr = funcs->head; curr != NULL; curr = curr->next) {
     char* func_name = (char*) curr->payload;
@@ -85,6 +89,10 @@ void call_graph_dump(struct call_graph* graph, const char* file_name) {
 void call_graph_dump_dot(struct call_graph* graph, const char* file_name) {
   FILE* f = fopen(file_name, "w");
   fprintf(f, "digraph \"%s\" {\n", file_name);
+  if(f == NULL) {
+    perror("Could not create file: ");
+    return;
+  }
   struct list* func = graph->func_names;
   for (struct list_node* curr_callee = func->head; curr_callee != NULL; curr_callee = curr_callee->next) {
     char* callee = (char*) curr_callee->payload;
@@ -97,4 +105,44 @@ void call_graph_dump_dot(struct call_graph* graph, const char* file_name) {
   }
   fprintf(f, "}\n");
   fclose(f);
+}
+
+struct call_graph* call_graph_load(const char* file_name) {
+  FILE* f = fopen(file_name, "r");
+  if (f == NULL) {
+    return NULL;
+  }
+
+  struct call_graph* graph = call_graph_create();
+  size_t num_nodes;
+  fread(&num_nodes, sizeof(size_t), 1, f);
+  for (size_t i = 0; i < num_nodes; i++) {
+    char* func_name = (char*) malloc(256);
+    char* curr_char = func_name;
+    do {
+      fread(curr_char, 1, 1, f);
+      if (*curr_char != '\0') {
+        curr_char++;
+      }
+    } while(*curr_char != '\0');
+    list_append(graph->func_names, func_name);
+    struct graph_node* func_node = create_node(func_name);
+    map_insert(graph->nodes, func_name, func_node);
+  }
+
+  fread(&graph->num_root_nodes, sizeof(size_t), 1, f);
+  for (struct list_node* curr = graph->func_names->head; curr != NULL; curr = curr->next) {
+    char* curr_callee = (char*) curr->payload;
+    size_t num_callers;
+    fread(&num_callers, sizeof(size_t), 1, f);
+    for (size_t i = 0; i < num_callers; i++) {
+      size_t caller_index;
+      fread(&caller_index, sizeof(size_t), 1, f);
+      char* curr_caller = (char*) list_get(graph->func_names, caller_index);
+      call_graph_insert(graph, curr_callee, curr_caller);
+    }
+  }
+
+  fclose(f);
+  return graph;
 }

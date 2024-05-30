@@ -11,44 +11,49 @@
 #include "assignment_parse.h"
 #include "var_search.h"
 
+#define MAX_DEPTH 20
+
+// TODO: Fix issue with fake recursive calls for macros
+
 static const char* FUNCS_TO_IGNORE[] = {"main", "test", "init"};
 
 static void get_func_callers(struct call_graph* graph, const char* func_name,
                              const char* func_alias_root,
-                             struct list* struct_hierarchy);
+                             struct list* struct_hierarchy, size_t curr_depth);
 
 static void get_callers_in_refs(struct call_graph* graph, const char* func_name,
                                 const char* func_alias_root,
                                 struct list* struct_hierarchy,
-                                struct list* func_refs);
+                                struct list* func_refs, size_t curr_depth);
 
 static void check_func_calls(struct call_graph* graph, const char* func_name,
                             const char* func_alias_root,
                             struct list* struct_hierarchy, const char* caller_name,
-                             const char* func_ref);
+                             const char* func_ref, size_t curr_depth);
 
 void expand_call_graph(struct call_graph* graph, struct list* funcs) {
   for (struct list_node* curr = funcs->head; curr != NULL; curr = curr->next) {
     char* func_name = (char*) curr->payload;
-    get_func_callers(graph, func_name, func_name, NULL);
+    get_func_callers(graph, func_name, func_name, NULL, 0);
   }
 }
 
 static void get_func_callers(struct call_graph* graph, const char* func_name,
                              const char* func_alias_root,
-                             struct list* struct_hierarchy) {
+                             struct list* struct_hierarchy, size_t curr_depth) {
   char cmd[256];
   sprintf(cmd, "cscope -d -L0 %s", func_alias_root);
   struct list* func_refs = utils_get_cscope_output(cmd);
   get_callers_in_refs(graph, func_name, func_alias_root, struct_hierarchy,
-                      func_refs);
+                      func_refs, curr_depth);
 }
 
 static void get_callers_in_refs(struct call_graph* graph, const char* func_name,
                                 const char* func_alias_root,
                                 struct list* struct_hierarchy,
-                                struct list* func_refs) {
-  if (utils_str_in_array(FUNCS_TO_IGNORE, func_name, UTILS_SIZEOF_ARR(FUNCS_TO_IGNORE))) {
+                                struct list* func_refs, size_t curr_depth) {
+  if (curr_depth >= MAX_DEPTH ||
+      utils_str_in_array(FUNCS_TO_IGNORE, func_name, UTILS_SIZEOF_ARR(FUNCS_TO_IGNORE))) {
     return;
   }
   for (struct list_node* curr_ref = func_refs->head; curr_ref != NULL; curr_ref = curr_ref->next) {
@@ -61,7 +66,7 @@ static void get_callers_in_refs(struct call_graph* graph, const char* func_name,
           continue;
         }
         check_func_calls(graph, func_name, func_alias_root, struct_hierarchy,
-                         func_ref_arr[1], func_ref);
+                         func_ref_arr[1], func_ref, curr_depth);
       } else {
        /*  bool out_arg_assignment; */
     /*     char* func_ptr_var = assignment_get_assignment_var(func_ref_arr[1], */
@@ -96,7 +101,7 @@ static void get_callers_in_refs(struct call_graph* graph, const char* func_name,
 static void check_func_calls(struct call_graph* graph, const char* func_name,
                              const char* func_alias_root,
                              struct list* struct_hierarchy, const char* caller_name,
-                             const char* func_ref) {
+                             const char* func_ref, size_t curr_depth) {
   struct list* func_calls;
   struct list* funcs_start;
   struct list* var_args_indices;
@@ -116,7 +121,7 @@ static void check_func_calls(struct call_graph* graph, const char* func_name,
           !call_graph_contains_call(graph, func_name, caller_name)) {
         call_graph_insert(graph, func_name, caller_name);
         printf("Node inserted: %s -> %s\n", func_name, caller_name);
-        get_func_callers(graph, caller_name, caller_name, NULL);
+        get_func_callers(graph, caller_name, caller_name, NULL, curr_depth + 1);
       }
     } else {
       struct list* call_matches = struct_get_struct_matches(func_call_name,
@@ -127,7 +132,7 @@ static void check_func_calls(struct call_graph* graph, const char* func_name,
         list_free_nodes(call_matches);
         call_graph_insert(graph, func_name, caller_name);
         printf("Node inserted: %s(alias %s) -> %s\n", func_name, func_alias_root, caller_name);
-        get_func_callers(graph, caller_name, caller_name, NULL);
+        get_func_callers(graph, caller_name, caller_name, NULL, curr_depth + 1);
       }
       //list_free_nodes(call_matches);
     }

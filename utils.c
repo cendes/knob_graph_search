@@ -174,7 +174,13 @@ bool utils_val_in_array(const size_t* array, size_t val, size_t array_len) {
 }
 
 bool utils_str_in_array(const char** array, const char* str, size_t array_len) {
-  return utils_substr_in_array(array, str, array_len, strlen(str));
+  for (size_t i = 0; i < array_len; i++) {
+    if (strcmp(array[i], str) == 0) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 bool utils_substr_in_array(const char** array, const char* str, size_t array_len,

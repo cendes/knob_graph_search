@@ -11,17 +11,19 @@ struct struct_match_node {
   hash_map next_segments;
 };
 
+extern struct call_graph* call_graph;
+
 char* var_find_knob_var(const char* knob, struct list** struct_hierarchy);
 
-struct list* var_find_func_refs(const char* var_name, struct list* struct_hierarchy,
-                                struct list** return_struct_hierarchy,
-                                struct list** output_vars);
+bool var_find_func_refs(const char* var_name, struct list* struct_hierarchy,
+                        struct list** return_struct_hierarchy,
+                        struct list** output_vars);
 
-struct list* var_get_func_refs(const char* var_name, struct list* struct_hierarchy,
-                               struct list* var_refs, bool is_global,
-                               const char* func_name, hash_map func_ptrs,
-                               struct list** return_struct_hierarchy,
-                               struct list** output_vars);
+bool var_get_func_refs(const char* var_name, struct list* struct_hierarchy,
+                       struct list* var_refs, bool is_global,
+                       const char* func_name, hash_map func_ptrs,
+                       struct list** return_struct_hierarchy,
+                       struct list** output_vars);
 
 struct list* var_get_local_var_refs(const char* var_name, const char* func_name,
                                     const char** statement_arr, int statement_arr_len,
