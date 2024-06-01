@@ -83,26 +83,28 @@ enum TokenReturnType token_get_return_match_node(const char* var_ref,
   size_t statement_start = 0;
   if (map_contains(visited_func_decls, func_name)) {
     const char* func_declaration = (char*) map_get(visited_func_decls, func_name);
-    char** func_declaration_arr;
-    size_t declaration_len = utils_split_str(func_declaration, &func_declaration_arr);
-    if (check_is_var_declaration(func_name, var_ref) &&
-        func_declaration_arr[0] != var_ref_arr[0]) {
-      var_ref = func_declaration;
-      var_ref_arr = (const char**) func_declaration_arr;
-    }
-    if (utils_str_in_array((const char**) func_declaration_arr, "#define", declaration_len)) {
-      is_define = true;
-      if (strchr(func_declaration_arr[declaration_len - 1], '\\') != NULL) {
-        utils_free_str_arr(func_declaration_arr);
-        return NO_RETURN;
-      } else if (atoi(func_declaration_arr[2]) == atoi(var_ref_arr[2])) {
-        size_t args_start = strchr(var_ref, '(') - var_ref;
-        statement_start = check_recur_with_parenthesis(var_ref, args_start + 1, '(');
-      } else {
-        statement_start = 0;
+    if (func_declaration != NULL) {
+      char** func_declaration_arr;
+      size_t declaration_len = utils_split_str(func_declaration, &func_declaration_arr);
+      if (check_is_var_declaration(func_name, var_ref) &&
+          func_declaration_arr[0] != var_ref_arr[0]) {
+        var_ref = func_declaration;
+        var_ref_arr = (const char**) func_declaration_arr;
       }
+      if (utils_str_in_array((const char**) func_declaration_arr, "#define", declaration_len)) {
+        is_define = true;
+        if (strchr(func_declaration_arr[declaration_len - 1], '\\') != NULL) {
+          utils_free_str_arr(func_declaration_arr);
+          return NO_RETURN;
+        } else if (atoi(func_declaration_arr[2]) == atoi(var_ref_arr[2])) {
+          size_t args_start = strchr(var_ref, '(') - var_ref;
+          statement_start = check_recur_with_parenthesis(var_ref, args_start + 1, '(');
+        } else {
+          statement_start = 0;
+        }
+      }
+      utils_free_str_arr(func_declaration_arr);
     }
-    utils_free_str_arr(func_declaration_arr);
   }
 
   if (!is_define) {

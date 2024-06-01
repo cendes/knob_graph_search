@@ -453,6 +453,10 @@ bool check_is_assignment_op(const char* token, size_t curr_char) {
      !utils_char_in_array("=<>!", token[curr_char - 1], 4));
 }
 
+bool check_is_static(const char* var_ref) {
+  return has_token_match(var_ref, "static");
+}
+
 static bool has_token_match(const char* var_ref, const char* token) {
   size_t* start_indices;
   int num_starts = utils_get_str_occurences(var_ref, token, &start_indices);

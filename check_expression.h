@@ -45,6 +45,8 @@ bool check_has_open_string(const char* var_ref);
 
 bool check_is_assignment_op(const char* token, size_t curr_char);
 
+bool check_is_static(const char* var_ref);
+
 bool check_is_token_match(const char* var_ref, size_t index, size_t token_len);
 
 struct list* check_get_string_ranges(const char* var_ref);

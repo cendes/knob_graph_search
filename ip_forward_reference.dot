@@ -12,7 +12,6 @@ digraph "/home/cendes/Documents/masters_thesis/ocloz/knob_graph_search/./ip_forw
 	 __module_address -> within_module
 	 mod_find -> within_module
 	 within_module -> within_module_init
-	 __module_address -> BUG_ON
 	 devinet_init_net -> register_net_sysctl
 	 __register_sysctl_table -> sysctl_check_table
 	 register_net_sysctl -> __register_sysctl_table

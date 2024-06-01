@@ -11,7 +11,7 @@
 #include "assignment_parse.h"
 #include "var_search.h"
 
-#define MAX_DEPTH 20
+#define MAX_DEPTH 10
 
 // TODO: Fix issue with fake recursive calls for macros
 

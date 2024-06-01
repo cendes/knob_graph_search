@@ -11,14 +11,16 @@ static ssize_t get_comment_index(char* curr_var_ref, const char* comment_type);
 static char* remove_comment(char* curr_var_ref, ssize_t comment_index);
 
 char* sanitize_extract_varname(const char* var_ref) {
-  char* var_name = (char*) malloc(strlen(var_ref) + 1);
-  strncpy(var_name, var_ref, strlen(var_ref) + 1);
-  while (utils_char_in_array(C_UNARY_OPERANDS, var_name[0], UTILS_SIZEOF_ARR(C_UNARY_OPERANDS))) {
-    var_name++;
+  const char* var_ref_start = var_ref;
+  while (utils_char_in_array(C_UNARY_OPERANDS, var_ref_start[0], UTILS_SIZEOF_ARR(C_UNARY_OPERANDS))) {
+    var_ref_start++;
   }
+  char* var_name = (char*) malloc(strlen(var_ref_start) + 1);
+  strncpy(var_name, var_ref_start, strlen(var_ref_start) + 1);
   if (var_name[strlen(var_name) - 1] == ']') {
     // TODO: check if variable is inside the brackets
-    utils_truncate_str(var_name, var_name - strchr(var_name, '['));
+    size_t open_bracket_idx = check_recur_with_parenthesis(var_name, strlen(var_name) - 2, ']');
+    var_name[open_bracket_idx] = '\0';
   }
   if (strchr(var_name, '(') != NULL) {
     char* peeled_var_name = sanitize_peel_parenthesis(var_name);

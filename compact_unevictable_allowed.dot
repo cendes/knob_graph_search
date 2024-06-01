@@ -1,0 +1,27 @@
+digraph "/home/cendes/Documents/masters_thesis/ocloz/knob_graph_search/./compact_unevictable_allowed.dot" {
+	 compact_zone -> isolate_migratepages
+	 compact_node -> compact_zone
+	 kcompactd_do_work -> compact_zone
+	 proactive_compact_node -> compact_zone
+	 compact_zone_order -> compact_zone
+	 compact_zone -> compact_zone
+	 try_to_compact_pages -> compact_zone_order
+	 __alloc_pages_direct_compact -> try_to_compact_pages
+	 __alloc_pages_slowpath -> __alloc_pages_direct_compact
+	 __alloc_pages_direct_compact -> __alloc_pages_direct_compact
+	 __alloc_pages -> __alloc_pages_slowpath
+	 __alloc_pages_slowpath -> __alloc_pages_slowpath
+	 alloc_migration_target -> __alloc_pages
+	 alloc_pages -> __alloc_pages
+	 alloc_pages_vma -> __alloc_pages
+	 alloc_pages_preferred_many -> __alloc_pages
+	 __alloc_pages_bulk -> __alloc_pages
+	 alloc_buddy_huge_page -> __alloc_pages
+	 alloc_page_interleave -> __alloc_pages
+	 __alloc_pages_node -> __alloc_pages
+	 kcompactd -> proactive_compact_node
+	 compact_store -> compact_node
+	 compact_nodes -> compact_node
+	 sysctl_compaction_handler -> compact_nodes
+	 kcompactd -> kcompactd_do_work
+}

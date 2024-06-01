@@ -19,7 +19,7 @@ void call_graph_add_root(struct call_graph* graph, const char* func_name) {
   if (!map_contains(graph->nodes, func_name)) {
     struct graph_node* root_node = create_node(func_name);
     map_insert(graph->nodes, func_name, root_node);
-    list_append(graph->func_names, func_name);
+    list_insert(graph->func_names, func_name);
     graph->num_root_nodes++;
   }
 }
@@ -119,12 +119,14 @@ struct call_graph* call_graph_load(const char* file_name) {
   for (size_t i = 0; i < num_nodes; i++) {
     char* func_name = (char*) malloc(256);
     char* curr_char = func_name;
+    char* last_char;
     do {
+      last_char = curr_char;
       fread(curr_char, 1, 1, f);
       if (*curr_char != '\0') {
         curr_char++;
       }
-    } while(*curr_char != '\0');
+    } while(*last_char != '\0');
     list_append(graph->func_names, func_name);
     struct graph_node* func_node = create_node(func_name);
     map_insert(graph->nodes, func_name, func_node);

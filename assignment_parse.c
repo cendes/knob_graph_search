@@ -28,6 +28,9 @@ bool assignment_handle_var_assignment(const char* func_name,
                                       hash_map func_ptrs,
                                       struct list** return_hierarchy,
                                       struct list** output_args) {
+  if (strcmp(var_ref, "net/xfrm/xfrm_policy.c xfrm_bundle_lookup 2954 pols[0] = xfrm_policy_lookup(net, fl, family, dir, if_id);") == 0) {
+    int test = 1;
+  }
   bool out_arg_assignment;
   const char* assignment_rhs;
   char* assigned_var = assignment_get_assignment_var(func_name, var_ref, var_ref_arr,
@@ -69,16 +72,16 @@ bool assignment_handle_var_assignment(const char* func_name,
   struct list* assigned_struct_hierarchy = struct_get_struct_hierarchy(assigned_var, &assigned_root);
   struct_hierarchy = list_combine(assigned_struct_hierarchy, hierarchy_matches);
 
-  if (var_contains_func_var_visited(func_name, assigned_root, struct_hierarchy,
-                                    return_hierarchy, output_args)) {
-    if (*output_args == NULL) {
-      *output_args = list_create();
-    }
-    utils_free_if_different(assigned_var, assigned_root);
-    return false;
-  }
+  //if (var_contains_func_var_visited(func_name, assigned_root, struct_hierarchy,
+  //                                  return_hierarchy, output_args)) {
+  //if (*output_args == NULL) {
+  //   *output_args = list_create();
+  //  }
+  //  utils_free_if_different(assigned_var, assigned_root);
+  //  return false;
+    //}
 
-  var_insert_func_var_visited(func_name, assigned_root, struct_hierarchy, NULL, NULL);
+    //var_insert_func_var_visited(func_name, assigned_root, struct_hierarchy, NULL, NULL);
   bool has_match = assignment_get_assigned_var_funcs(func_name, assigned_root,
                                                      struct_hierarchy, var_ref_arr,
                                                      var_ref_arr_len, func_ptrs,
@@ -86,7 +89,7 @@ bool assignment_handle_var_assignment(const char* func_name,
   if (out_arg_assignment) {
     assignment_append_out_arg(*output_args, assigned_root, struct_hierarchy);
   }
-  var_remove_func_var_visited(func_name, assigned_root);
+  //var_remove_func_var_visited(func_name, assigned_root);
 
   //list_free(assigned_struct_hierarchy); // TODO: what is the issue with this?
   list_free_nodes(hierarchy_matches);
@@ -171,8 +174,12 @@ static bool is_out_arg_assignment(const char* var_name, const char** var_ref_arr
        strstr(var_name, "->") != NULL)) {
     char* san_var_name = sanitize_extract_varname(var_name);
     char* root_var_name = struct_get_root_name(san_var_name);
+    if (strcmp(root_var_name, "iter") == 0) {
+      int test = 1;
+    }
     utils_free_if_both_different(san_var_name, var_name, root_var_name);
-    struct list* func_args_name = func_get_curr_func_arg_names(func_name);
+    struct list* func_args_name = func_get_curr_func_arg_names(func_name,
+                                                               var_ref_arr[0]);
 
     return check_is_arg_assignment(root_var_name, func_args_name);
   }
@@ -193,27 +200,61 @@ bool assignment_get_assigned_var_funcs(const char* func_name,
   //struct list* additional_funcs = list_create();
   *output_args = list_create(); // TODO: this leaks memory
   *return_hierarchy = NULL;
+  char* root_assignment_name = struct_get_root_name(assigned_var);
 
   if (assigned_var != NULL) {
-    struct list* assigned_var_refs = var_get_local_var_refs(assigned_var, func_name,
-                                                            var_ref_arr,
-                                                            var_ref_arr_len, false);
-    char* root_assignment_name = struct_get_root_name(assigned_var);
-    if (assigned_var_refs == NULL) {
-      // TODO: remove this check
-      if (!list_contains_str(globals_visited, root_assignment_name)) {
-        has_match = var_find_func_refs(root_assignment_name, struct_hierarchy,
-                                       return_hierarchy, output_args);
-        list_append(globals_visited, root_assignment_name);
+    struct func_var_entry* entry = var_get_func_var_entry(func_name,
+                                                          root_assignment_name);
+    bool is_global = false;
+    struct list* assigned_var_refs;
+    if (entry == NULL) {
+      entry = var_get_func_var_entry("<global>", root_assignment_name);
+      if (entry == NULL) {
+        assigned_var_refs = var_get_local_var_refs(assigned_var, func_name,
+                                                   var_ref_arr, var_ref_arr_len,
+                                                   false);
+        if (assigned_var_refs == NULL) {
+          has_match = var_find_func_refs(root_assignment_name, struct_hierarchy,
+                                         return_hierarchy, output_args);
+          return has_match;
+        } else {
+          entry = var_create_func_var_entry(func_name, root_assignment_name);
+          entry->var_refs = assigned_var_refs;
+        }
+      } else {
+        assigned_var_refs = entry->var_refs;
+        is_global = true;
       }
     } else {
-      has_match = var_get_func_refs(root_assignment_name, struct_hierarchy,
-                                    assigned_var_refs, false, func_name,
-                                    func_ptrs, return_hierarchy, output_args);
-      list_free_nodes(assigned_var_refs);
+      assigned_var_refs = entry->var_refs;
+      is_global = false;
     }
-  }
 
+    if (!entry->locked) {
+      entry->locked = true;
+      if (is_global) {
+        func_name = NULL;
+      }
+      has_match = var_get_func_refs(root_assignment_name, struct_hierarchy,
+                                    assigned_var_refs, is_global, func_name,
+                                    func_ptrs, return_hierarchy, output_args);
+      entry->locked = false;
+    }
+    
+  /*   if (assigned_var_refs == NULL) { */
+  /*     if (!list_contains_str(globals_visited, root_assignment_name)) { */
+  /*       has_match = var_find_func_refs(root_assignment_name, struct_hierarchy, */
+  /*                                      return_hierarchy, output_args); */
+  /*       list_append(globals_visited, root_assignment_name); */
+  /*     } */
+  /*   } else { */
+  /*     has_match = var_get_func_refs(root_assignment_name, struct_hierarchy, */
+  /*                                   assigned_var_refs, false, func_name, */
+  /*                                   func_ptrs, return_hierarchy, output_args); */
+  /*     list_free_nodes(assigned_var_refs); */
+  /*   } */
+  /* } */
+  }
   return has_match;
 }
 
