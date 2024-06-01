@@ -210,17 +210,18 @@ bool assignment_get_assigned_var_funcs(const char* func_name,
     if (entry == NULL) {
       entry = var_get_func_var_entry("<global>", root_assignment_name);
       if (entry == NULL) {
+        struct list* global_var_refs;
         assigned_var_refs = var_get_local_var_refs(assigned_var, func_name,
                                                    var_ref_arr, var_ref_arr_len,
-                                                   false);
+                                                   false, &global_var_refs);
         if (assigned_var_refs == NULL) {
-          has_match = var_find_func_refs(root_assignment_name, struct_hierarchy,
-                                         return_hierarchy, output_args);
-          return has_match;
+          entry = var_create_func_var_entry("<global>", root_assignment_name);
+          is_global = true;
+          assigned_var_refs = global_var_refs;
         } else {
           entry = var_create_func_var_entry(func_name, root_assignment_name);
-          entry->var_refs = assigned_var_refs;
         }
+        entry->var_refs = assigned_var_refs;
       } else {
         assigned_var_refs = entry->var_refs;
         is_global = true;
@@ -233,11 +234,15 @@ bool assignment_get_assigned_var_funcs(const char* func_name,
     if (!entry->locked) {
       entry->locked = true;
       if (is_global) {
-        func_name = NULL;
+        has_match = var_get_global_var_refs(root_assignment_name, struct_hierarchy,
+                                            assigned_var_refs);
+        *return_hierarchy = NULL;
+        *output_args = list_create();
+      } else {
+        has_match = var_get_func_refs(root_assignment_name, struct_hierarchy,
+                                      assigned_var_refs, func_name, func_ptrs,
+                                      return_hierarchy, output_args, NULL);
       }
-      has_match = var_get_func_refs(root_assignment_name, struct_hierarchy,
-                                    assigned_var_refs, is_global, func_name,
-                                    func_ptrs, return_hierarchy, output_args);
       entry->locked = false;
     }
     

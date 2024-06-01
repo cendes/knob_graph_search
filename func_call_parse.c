@@ -228,11 +228,11 @@ bool func_handle_func_call(const char* var_name,
           //                           arg_struct_hierarchy, NULL, NULL);
           bool match_found = var_get_func_refs(curr_arg_name,
                                                arg_struct_hierarchy,
-                                               curr_arg_refs, false,
-                                               func_call,
+                                               curr_arg_refs, func_call,
                                                func_ptrs_passed,
                                                &return_var_hierarchy,
-                                               &output_args);
+                                               &output_args,
+                                               NULL);
           caller_entry->locked = false;
           //var_insert_func_var_visited(func_name, func_var_code,
           //                            arg_struct_hierarchy, return_var_hierarchy,
@@ -756,9 +756,11 @@ struct list* func_get_func_args_refs(const char* func_name,
     struct list* arg_refs;
     if (arg_entry == NULL) {
       arg_entry = var_create_func_var_entry(func_name, arg_name);
+      struct global_var_refs;
       arg_refs = var_get_local_var_refs(arg_name, func_name,
                                         (const char**) statement_arr,
-                                        statement_arr_len, is_func_declaration);
+                                        statement_arr_len, is_func_declaration,
+                                        NULL);
       arg_entry->var_refs = arg_refs;
       arg_entry->locked = false;
     } else {
@@ -841,12 +843,13 @@ static char* get_ptr_from_func_return(const char* func_call, const char** var_re
     char* arg_arg = (char*) curr->payload;
     struct list* arg_refs = var_get_local_var_refs(arg_arg, out_func_name,
                                                    var_ref_arr, var_ref_arr_len,
-                                                   false);
+                                                   false, NULL);
     struct list* arg_return_hierarchy;
     struct list* output_args;
     var_get_func_refs(arg_arg, list_create(), arg_refs,
-                      false, out_func_name, func_ptrs,
-                      &arg_return_hierarchy, &output_args);
+                      out_func_name, func_ptrs,
+                      &arg_return_hierarchy, &output_args,
+                      NULL);
     list_free(output_args);
     list_free(arg_refs);
     if (return_hierarchy != NULL) {
