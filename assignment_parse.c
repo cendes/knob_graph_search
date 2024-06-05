@@ -44,7 +44,7 @@ bool assignment_handle_var_assignment(const char* func_name,
     return false;
   }
 
-  if (strcmp(assigned_var, "tbl[0].data") == 0) {
+  if (strcmp(func_name, "rose_parse_national") == 0 && strcmp(assigned_var, "pt") == 0) {
     int test = 1;
   }
   
@@ -174,7 +174,7 @@ static bool is_out_arg_assignment(const char* var_name, const char** var_ref_arr
        strstr(var_name, "->") != NULL)) {
     char* san_var_name = sanitize_extract_varname(var_name);
     char* root_var_name = struct_get_root_name(san_var_name);
-    if (strcmp(root_var_name, "iter") == 0) {
+    if (strcmp(root_var_name, "pt") == 0) {
       int test = 1;
     }
     utils_free_if_both_different(san_var_name, var_name, root_var_name);
@@ -234,8 +234,8 @@ bool assignment_get_assigned_var_funcs(const char* func_name,
     if (!entry->locked) {
       entry->locked = true;
       if (is_global) {
-        has_match = var_get_global_var_refs(root_assignment_name, struct_hierarchy,
-                                            assigned_var_refs);
+        var_get_global_var_refs(root_assignment_name, struct_hierarchy,
+                                assigned_var_refs);
         *return_hierarchy = NULL;
         *output_args = list_create();
       } else {

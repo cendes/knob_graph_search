@@ -13,19 +13,26 @@ hash_map map_create() {
 void map_insert(hash_map map, const char* key, const void* value) {
   unordered_map<string, void*>* cpp_map = static_cast<unordered_map<string, void*>*>(map);
   string cpp_key(key);
+  if (cpp_key == "ic_open_devs") {
+    int test = 1;
+  }
   (*cpp_map)[cpp_key] = const_cast<void*>(value);
 }
 
 bool map_contains(hash_map map, const char* key) {
   unordered_map<string, void*>* cpp_map = static_cast<unordered_map<string, void*>*>(map);
   string cpp_key(key);
-  return (*cpp_map).find(cpp_key) != (*cpp_map).end();
+  //return (*cpp_map).find(cpp_key) != (*cpp_map).end();
+  return (*cpp_map).count(cpp_key) == 1;
 }
 
 void* map_get(hash_map map, const char* key) {
   unordered_map<string, void*>* cpp_map = reinterpret_cast<unordered_map<string, void*>*>(map);
   string cpp_key(key);
-  return (*cpp_map)[cpp_key];
+  if (cpp_key == "ic_open_devs") {
+    int test = 1;
+  }
+  return (*cpp_map).at(cpp_key);
 }
 
 void map_free(hash_map map) {

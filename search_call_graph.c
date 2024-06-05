@@ -36,6 +36,15 @@ int main(int argc, char* argv[]) {
     return EXIT_FAILURE;
   }
 
+  printf("%s: ", knob_name);
+  struct list_node* root = graph->func_names->head;
+  for (size_t i = 0; i < graph->num_root_nodes; i++) {
+   char* root_func = (char*) root->payload;
+   printf("%s, ", root_func);
+   root = root->next;
+  }
+  printf("\n");
+
   struct list* matches = list_create();
   struct list_node* curr_root = graph->func_names->head;
   for (size_t i = 0; i < graph->num_root_nodes; i++) {

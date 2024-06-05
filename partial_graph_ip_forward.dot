@@ -1,9 +1,16 @@
 digraph "/home/cendes/Documents/masters_thesis/ocloz/knob_graph_search/./partial_graph_ip_forward.dot" {
 	 __register_sysctl_table -> sysctl_check_table
-	 __module_address -> mod_find
+	 __module_address -> BUG_ON
+	 within_module -> within_module_init
+	 within_module -> within_module_core
+	 latch_tree_find -> __lt_find
 	 is_module_address -> __module_address
 	 ensure_safe_net_sysctl -> is_module_address
 	 register_net_sysctl -> ensure_safe_net_sysctl
+	 mod_find -> latch_tree_find
+	 __module_address -> mod_find
+	 __module_address -> within_module
+	 mod_find -> within_module
 	 devinet_init_net -> register_net_sysctl
 	 register_net_sysctl -> __register_sysctl_table
 }

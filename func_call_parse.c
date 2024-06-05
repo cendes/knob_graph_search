@@ -13,12 +13,13 @@
 #include "assignment_parse.h"
 #include "func_call_parse.h"
 #include "call_graph.h"
+#include "database.h"
 
 static hash_map visited_func_ptr_args = map_create();
 
 hash_map visited_func_args_decl = map_create();
 
-hash_map visited_func_decls = map_create();
+hash_map visited_func_decls;
 
 static struct list* get_func_args(const char* var_ref,
                                   size_t args_start_index,
@@ -74,6 +75,44 @@ static bool handle_output_args(const char* func_name,
 static ssize_t get_func_arg_index(struct list_node* args_range, size_t func_start,
                                   size_t* arg_idx);
 
+void func_load_visited_func_decls(const char* filename) {
+  visited_func_decls = database_read_visited_func_decls(filename);
+  struct list* func_list = map_get_key_list(visited_func_decls);
+  for (struct list_node* curr_func = func_list->head; curr_func != NULL;
+       curr_func = curr_func->next) {
+    char* func_name = (char*) curr_func->payload;
+    char* func_declaration = (char*) map_get(visited_func_decls, func_name);
+    if (func_declaration != NULL) {
+      size_t args_start_index = strchr(func_declaration, '(') - func_declaration;
+      struct list* args_range;
+      struct list* args_declaration = get_func_args(func_declaration,
+                                                    args_start_index, &args_range);
+      list_free(args_range);
+
+      if (args_declaration->len == 0 ||
+          (args_declaration->len == 1 &&
+           strcmp((char*) args_declaration->head->payload, "void")) == 0) {
+        list_free(args_declaration);
+      } else {
+        map_insert(visited_func_args_decl, func_name, args_declaration);
+
+        struct list* func_ptr_args = list_create();
+        for (struct list_node* curr_arg = args_declaration->head; curr_arg != NULL;
+             curr_arg = curr_arg->next) {
+          if (check_is_func_ptr((char*) curr_arg->payload)) {
+            list_append(func_ptr_args, (void*) curr_arg->index);
+          }
+        }
+        if (func_ptr_args->len == 0) {
+          list_free_nodes(func_ptr_args);
+        } else {
+          map_insert(visited_func_ptr_args, func_name, func_ptr_args);
+        }
+      }
+    }
+  }
+}
+
 bool func_handle_func_call(const char* var_name,
                            struct list* struct_hierarchy,
                            const char* var_ref, const char** var_ref_arr,
@@ -118,7 +157,7 @@ bool func_handle_func_call(const char* var_name,
 
     struct list* args_indices = (struct list*) curr_args_indices->payload;
     struct list* args_struct_matches = (struct list*) curr_struct_matches->payload;
-    if (strcmp(func_call, "kmemdup") == 0) {
+    if (strcmp(func_call, "rose_parse_national") == 0) {
       int test = 1;
     }
     
@@ -148,17 +187,32 @@ bool func_handle_func_call(const char* var_name,
         //  var_func_extend_unique(funcs, additional_funcs);
         //}
         if (check_is_arg_assignment(assigned_root_name, calling_func_args)) {
-          assignment_append_out_arg(additional_output_args, (char*) var_name, assigned_hierarchy);
+          assignment_append_out_arg(additional_output_args, assigned_root_name, assigned_hierarchy);
         }
         var_out_arg_extend_unique(*output_vars, additional_output_args);
       }
-    } else if (strcmp(func_call, "create_object") != 0 && strcmp(func_call, "kfree_skb")) {
+    } else if (strcmp(func_call, "create_object") != 0 && strcmp(func_call, "kfree_skb") != 0 &&
+               strcmp(func_call, "__jhash_mix") != 0 && strcmp(func_call,"__jhash_final") != 0 &&
+               strcmp(func_call, "__kfree_skb") && strcmp(func_call, "__cache_free") &&
+               strcmp(func_call,  "__list_add") != 0) {
       struct list* func_arg_names;
       struct list* func_ptr_args;
       char** func_declaration_arr;
       size_t func_declaration_arr_len;
       if (map_contains(visited_func_decls, func_call)) {
+        if (strcmp(func_call, "__rdma_create_kernel_id") == 0) {
+          int test = 1;
+        }
         if (!map_contains(visited_func_args_decl, func_call)) {
+          curr_call_args = curr_call_args->next;
+          curr_func_start = curr_func_start->next;
+          curr_args_indices = curr_args_indices->next;
+          curr_struct_matches = curr_struct_matches->next;
+          curr_args_range = curr_args_range->next;
+          //list_free(func_arg_names);
+          //list_free(func_ptr_args);
+          list_free_nodes(args_struct_matches);
+          list_free_nodes(args_indices);
           continue;
         }
         
@@ -183,8 +237,15 @@ bool func_handle_func_call(const char* var_name,
       }
       
       if (func_arg_names->len == 0) {
+        curr_call_args = curr_call_args->next;
+        curr_func_start = curr_func_start->next;
+        curr_args_indices = curr_args_indices->next;
+        curr_struct_matches = curr_struct_matches->next;
+        curr_args_range = curr_args_range->next;
         list_free(func_arg_names);
         list_free(func_ptr_args);
+        list_free_nodes(args_struct_matches);
+        list_free_nodes(args_indices);
         continue;
       }
 
@@ -346,16 +407,15 @@ struct list* func_get_curr_func_arg_names(const char* func_name, const char* ref
   char** func_declaration_arr;
   size_t func_declaration_arr_len; 
   if (map_contains(visited_func_decls, func_name)) {
-    char* func_declaration = (char*) map_get(visited_func_decls, func_name);
-    func_declaration_arr_len = utils_split_str(func_declaration, &func_declaration_arr);
-    struct list* args_declaration = (struct list*) map_get(visited_func_args_decl, func_name);
-    if (args_declaration == NULL) {
+    if (!map_contains(visited_func_args_decl, func_name)) {
       return list_create();
-    } else {
-      return func_get_func_args_name(func_name, args_declaration,
-                                     (const char**) func_declaration_arr,
-                                     func_declaration_arr_len);
     }
+    char* func_declaration = (char*) map_get(visited_func_decls, func_name);
+    struct list* args_declaration = (struct list*) map_get(visited_func_args_decl, func_name);
+    func_declaration_arr_len = utils_split_str(func_declaration, &func_declaration_arr);
+    return func_get_func_args_name(func_name, args_declaration,
+                                   (const char**) func_declaration_arr,
+                                   func_declaration_arr_len);
   } else {
     struct list* func_ptr_args;
     return func_extract_func_arg_names(func_name, ref_src_file, NULL, &func_ptr_args,
@@ -385,6 +445,9 @@ struct list* func_get_func_call_args(const char* var_name,
     char* func_name = token_get_func_name(var_ref, args_start_indices[i]);
     if (func_name == NULL) {
       continue;
+    }
+    if (strcmp(func_name, "d_inode") == 0) {
+      int test = 1;
     }
 
     struct list* func_args_range;
@@ -478,7 +541,7 @@ struct list* func_extract_func_arg_names(const char* func_name,
     return list_create();
   }
 
-  if (strcmp(func_name, "init_header") == 0) {
+  if (strcmp(func_name, "ic_open_devs") == 0) {
     int test = 1;
   }
   if (strcmp(func_name, "pr_err") == 0) {
@@ -559,6 +622,7 @@ static struct list* get_func_args_declaration(const char* func_name,
         (strstr(func_declaration, "#define") != NULL ||
          check_has_arg_names(args_declaration))) {
       map_insert(visited_func_decls, func_name, func_declaration);
+      database_write_visited_func_decls_entry(func_name, func_declaration);
       if (num_declaration_args == 0) {
         list_free(args_declaration);
         args_declaration = NULL;
@@ -636,7 +700,8 @@ static struct list* get_func_declarations(const char* func_name,
     char* declaration_name = token_find_func_name(func_ref);
     if (declaration_name != NULL && strcmp(declaration_name, func_name) == 0 &&
         check_is_var_declaration(func_name, func_ref) &&
-        (!check_is_static(func_ref) || strcmp(func_ref_arr[0], ref_src_file) == 0)) {
+        (!check_is_static(func_ref) || strstr(func_ref_arr[0], ".h") ||
+         strcmp(func_ref_arr[0], ref_src_file) == 0)) {
       free(declaration_name);
       if (check_is_extern(func_ref)) {
         list_append(extern_declarations, full_func_ref);
@@ -756,11 +821,14 @@ struct list* func_get_func_args_refs(const char* func_name,
     struct list* arg_refs;
     if (arg_entry == NULL) {
       arg_entry = var_create_func_var_entry(func_name, arg_name);
-      struct global_var_refs;
+      struct list* global_var_refs;
       arg_refs = var_get_local_var_refs(arg_name, func_name,
                                         (const char**) statement_arr,
                                         statement_arr_len, is_func_declaration,
-                                        NULL);
+                                        &global_var_refs);
+      if (arg_refs == NULL) {
+        list_append(func_arg_refs, list_create());
+      }
       arg_entry->var_refs = arg_refs;
       arg_entry->locked = false;
     } else {
@@ -841,22 +909,35 @@ static char* get_ptr_from_func_return(const char* func_call, const char** var_re
 
   for (struct list_node* curr = arg_args->head; curr != NULL; curr = curr->next) {
     char* arg_arg = (char*) curr->payload;
-    struct list* arg_refs = var_get_local_var_refs(arg_arg, out_func_name,
-                                                   var_ref_arr, var_ref_arr_len,
-                                                   false, NULL);
+    struct func_var_entry* entry = var_get_func_var_entry(out_func_name, arg_arg);
+    struct list* arg_refs;
+    if (entry == NULL) {
+      struct list* global_var_refs;
+      arg_refs = var_get_local_var_refs(arg_arg, out_func_name, var_ref_arr,
+                                        var_ref_arr_len, false, &global_var_refs);
+      list_free_nodes(global_var_refs);
+      entry = var_create_func_var_entry(out_func_name, arg_arg);
+      entry->var_refs = arg_refs;
+    } else {
+      arg_refs = entry->var_refs;
+    }
+    
+    //struct list* arg_refs = var_get_local_var_refs(arg_arg, out_func_name,
+    //                                               var_ref_arr, var_ref_arr_len,
+    //                                              false, NULL);
     struct list* arg_return_hierarchy;
     struct list* output_args;
     var_get_func_refs(arg_arg, list_create(), arg_refs,
                       out_func_name, func_ptrs,
                       &arg_return_hierarchy, &output_args,
                       NULL);
-    list_free(output_args);
-    list_free(arg_refs);
+    //list_free(output_args);
+    //list_free(arg_refs);
     if (return_hierarchy != NULL) {
-      free(out_func_name);
-      for (struct list_node* n = curr->next; n != NULL; n = n->next) {
-        free(n->payload);
-      }
+      //free(out_func_name);
+      //for (struct list_node* n = curr->next; n != NULL; n = n->next) {
+      //  free(n->payload);
+      //}
       list_free_nodes(arg_args);
         
       char* root_name;
@@ -867,11 +948,11 @@ static char* get_ptr_from_func_return(const char* func_call, const char** var_re
       list_free_nodes(assigned_hierarchy);
       return arg_arg;
     } else {
-      free(arg_arg);
+      //free(arg_arg);
     }
   }
 
-  free(out_func_name);
+  //free(out_func_name);
   list_free_nodes(arg_args);
   *return_hierarchy = NULL;
   return NULL;
@@ -915,6 +996,7 @@ static bool handle_output_args(const char* func_name,
                                struct list** return_hierarchy) {
   bool has_match = false;
   *additional_output_args = list_create();
+  *return_hierarchy = NULL;
   //struct list* funcs = list_create();
   
   for (struct list_node* curr = call_output_args->head; curr != NULL; curr = curr->next) {
@@ -988,4 +1070,46 @@ bool func_list_contains_output_arg(struct list* out_args, struct output_arg* out
   }
 
   return false;
+}
+
+void func_handle_entrypoint_out_args(const char* entry_func, const char* caller_func,
+                                     struct list* output_args, const char* func_ref,
+                                     const char** func_ref_arr, size_t func_ref_arr_len,
+                                     struct list** return_hierarchy,
+                                     struct list** caller_out_args) {
+  struct list* entry_arg_names =
+    func_get_curr_func_arg_names(entry_func, func_ref_arr[0]);
+  struct list* caller_arg_names =
+    func_get_curr_func_arg_names(caller_func, func_ref_arr[0]);
+  
+
+  *caller_out_args = list_create();
+  size_t* args_start_indices;
+  size_t num_start_indices = utils_get_char_occurences(func_ref, '(',
+                                                       &args_start_indices);
+  for (size_t i = 0; i < num_start_indices; i++) {
+    char* func_name = token_get_func_name(func_ref, args_start_indices[i]);
+    if (func_name == NULL || strcmp(func_name, entry_func) != 0) {
+      free(func_name);
+      continue;
+    }
+    free(func_name);
+
+    struct list* func_args_range;
+    struct list* call_args = get_func_args(func_ref, args_start_indices[i],
+                                           &func_args_range);
+    list_free(func_args_range);
+
+    struct list* additional_output_args;
+    struct list* return_var_hierarchy;
+    hash_map func_ptrs = map_create();
+    handle_output_args(caller_func, caller_arg_names, entry_func, call_args,
+                       entry_arg_names, output_args, func_ref_arr,
+                       func_ref_arr_len, func_ptrs, &additional_output_args,
+                       &return_var_hierarchy);
+    if (return_var_hierarchy != NULL) {
+      *return_hierarchy = return_var_hierarchy;
+    }
+    var_out_arg_extend_unique(*caller_out_args, additional_output_args);
+  }
 }

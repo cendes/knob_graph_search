@@ -15,7 +15,7 @@ extern struct call_graph* call_graph;
 
 char* var_find_knob_var(const char* knob, struct list** struct_hierarchy);
 
-bool var_get_global_var_refs(const char* var_name, struct list* struct_hierarchy,
+void var_get_global_var_refs(const char* var_name, struct list* struct_hierarchy,
                              struct list* var_refs);
 
 bool var_get_func_refs(const char* var_name, struct list* struct_hierarchy,

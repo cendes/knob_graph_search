@@ -13,6 +13,8 @@ extern hash_map visited_func_args_decl;
 
 extern hash_map visited_func_decls;
 
+void func_load_visited_func_decls(const char* filename);
+
 struct list* func_get_curr_func_arg_names(const char* func_name,
                                           const char* ref_src_file);
 
@@ -54,5 +56,11 @@ struct list* func_get_func_args_refs(const char* func_name,
 void func_free_out_arg(void* void_out_arg);
 
 bool func_list_contains_output_arg(struct list* out_args, struct output_arg* out_arg);
+
+void func_handle_entrypoint_out_args(const char* entry_func, const char* caller_func,
+                                     struct list* output_args, const char* func_ref,
+                                     const char** func_ref_arr, size_t func_ref_arr_len,
+                                     struct list** return_hierarchy,
+                                     struct list** caller_out_args);
 
 #endif /* FUNC_CALL_PARSE_H */

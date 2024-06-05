@@ -132,7 +132,11 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
       continue;
     }
 
-    if (line[0] == '#') {
+    if (line[0] == '#' && check_has_mismatched_parenthesis(line)) {
+      int test = 1;
+    }
+
+    if (line[0] == '#' && !check_has_mismatched_parenthesis(line)) {
       expr[0] = '\0';
       curr_idx = 0;
     } else {
@@ -425,12 +429,14 @@ char* file_find_struct_name(const char* source_file, size_t line_number) {
     } else if (strstr(line, "#define") != NULL) {
       utils_free_if_different(line, line_buf);
       free(line_buf);
+      fclose(f);
       return NULL;
     }
 
     if (curr_line == line_number) {
       utils_free_if_different(line, line_buf);
       free(line_buf);
+      fclose(f);
       return var_name;
     }
     
@@ -438,5 +444,6 @@ char* file_find_struct_name(const char* source_file, size_t line_number) {
   } while(feof(f));
 
   free(line_buf);
+  fclose(f);
   return NULL;
 }

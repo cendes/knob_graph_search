@@ -87,13 +87,14 @@ enum TokenReturnType token_get_return_match_node(const char* var_ref,
       char** func_declaration_arr;
       size_t declaration_len = utils_split_str(func_declaration, &func_declaration_arr);
       if (check_is_var_declaration(func_name, var_ref) &&
-          func_declaration_arr[0] != var_ref_arr[0]) {
+          strcmp(func_declaration_arr[0], var_ref_arr[0]) != 0) { // TODO: fix this
         var_ref = func_declaration;
         var_ref_arr = (const char**) func_declaration_arr;
       }
       if (utils_str_in_array((const char**) func_declaration_arr, "#define", declaration_len)) {
         is_define = true;
-        if (strchr(func_declaration_arr[declaration_len - 1], '\\') != NULL) {
+        if (strchr(func_declaration_arr[declaration_len - 1], '\\') != NULL ||
+            strcmp(func_declaration_arr[0], var_ref_arr[0]) != 0) {
           utils_free_str_arr(func_declaration_arr);
           return NO_RETURN;
         } else if (atoi(func_declaration_arr[2]) == atoi(var_ref_arr[2])) {
