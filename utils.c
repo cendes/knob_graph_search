@@ -148,6 +148,9 @@ struct list* utils_get_cscope_output(const char* cmd) {
     }
   } while (bytes_read >= 0);
   free(line_buf);
+  if (var_refs->len == 0) {
+    int test = 1;
+  }
 
   pclose(f);
   return var_refs;

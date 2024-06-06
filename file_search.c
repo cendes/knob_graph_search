@@ -1,11 +1,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "c_keywords.h"
 #include "utils.h"
 #include "sanitize_expression.h"
 #include "token_get.h"
 #include "check_expression.h"
 #include "file_search.h"
+#include "func_call_parse.h"
 
 #define EXPR_SIZE 65536
 
@@ -48,8 +50,30 @@ char* file_get_multiline_expr(const char* var_ref, const char** var_ref_arr) {
               check_has_mismatched_parenthesis(san_var_ref))) {
     multiline_var_ref = get_full_expr(var_ref_arr[0], atoi(var_ref_arr[2]));
   }
+  
+  if (multiline_var_ref == NULL && !check_has_mismatched_parenthesis(san_var_ref) &&
+      strchr(san_var_ref, '=') == NULL && strchr(san_var_ref, '"') == NULL &&
+      check_is_func(san_var_ref) && !check_is_control_flow_expr(san_var_ref)) {
+    char* func_name = token_find_func_name(san_var_ref);
+    if (func_name != NULL &&
+        !utils_str_in_array(C_KEYWORDS, func_name, UTILS_SIZEOF_ARR(C_KEYWORDS))) {
+      char* str_after_args = strchr(san_var_ref, '(');
+      size_t args_start_index = str_after_args - san_var_ref;
+      struct list* args_range;
+      struct list* func_args = func_get_func_args(var_ref, args_start_index, &args_range);
+      list_free(args_range);
+      char* nested_func_name = token_find_func_name(str_after_args);
+      if (nested_func_name == NULL &&
+          ((func_args->len == 1 && strcmp((char*) func_args->head->payload, "void") == 0) ||
+           check_has_arg_names(func_args)) &&
+          !check_is_var_declaration(func_name, san_var_ref)) {
+        multiline_var_ref = get_full_expr(var_ref_arr[0], atoi(var_ref_arr[2]));
+      }
+    }
+  }
 
-  if (check_is_func(san_var_ref) && !check_is_control_flow_expr(san_var_ref) &&
+  if (multiline_var_ref == NULL && check_is_func(san_var_ref) &&
+      !check_is_control_flow_expr(san_var_ref) &&
       strchr(san_var_ref, '=') == NULL && strchr(san_var_ref, '"') == NULL &&
       strstr(san_var_ref, "->") == NULL) {
     char* func_name = token_find_func_name(san_var_ref);
@@ -93,6 +117,9 @@ char* file_get_multiline_expr(const char* var_ref, const char** var_ref_arr) {
 }
 
 static char* get_full_expr(const char* source_file, size_t line_number) {
+  if (strcmp(source_file, "fs/cifs/smbdirect.c") == 0) {
+    int test = 1;
+  }
   FILE* f = fopen(source_file, "r");
   if (f == NULL) {
     return NULL;
@@ -109,6 +136,9 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
   size_t buf_size = 0;
   char* line;
   do {
+    if (curr_line == 1574) {
+      int test = 1;
+    }
     curr_line++;
     line = get_clean_line(&line_buf, f, &buf_size, &open_comments);
     if (line == NULL) {
@@ -122,7 +152,7 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
       utils_free_if_different(line, line_buf);
       continue;
     }
-
+    
     char* original_line = line;
     bool curr_define = is_curr_define(&line);
     utils_free_if_both_different(original_line, line_buf, line);
@@ -346,12 +376,25 @@ static char* get_clean_line(char** line_buf, FILE* f, size_t* buf_size,
 
 static size_t remove_comments(char* line_buf, size_t bytes_read,
                               size_t open_comments, char** line) {
-  if (strstr(line_buf, "/*") != NULL) {
-    open_comments++;
-  }
-  if (strstr(line_buf, "*/") != NULL) {
-    open_comments--;
-  }
+  char* curr_line_ptr = line_buf;
+  bool has_close_comment = false;
+  do {
+    if (strstr(curr_line_ptr, "/*") != NULL) {
+      open_comments++;
+    }
+    
+    if (strstr(curr_line_ptr, "*/") != NULL) {
+      if (open_comments == 0) {
+        int test = 1;
+      }
+      curr_line_ptr = strstr(curr_line_ptr, "*/") + strlen("*/");
+      has_close_comment = true;
+      open_comments--;
+    } else {
+      has_close_comment = false;
+    }
+  } while (has_close_comment);
+  
   if (open_comments > 0) {
     line_buf[0] = '\0';
     *line = line_buf;

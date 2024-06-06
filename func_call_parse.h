@@ -4,14 +4,16 @@
 #include "list.h"
 #include "hash_map.h"
 
+enum FuncDeclStatus {
+  FUNC_DECL_FOUND,
+  FUNC_DECL_NOT_FOUND,
+  FUNC_DECL_NOT_EXISTS
+};
+
 struct output_arg {
   char* name;
   struct list* struct_hierarchy;
 };
-
-extern hash_map visited_func_args_decl;
-
-extern hash_map visited_func_decls;
 
 void func_load_visited_func_decls(const char* filename);
 
@@ -25,6 +27,10 @@ bool func_handle_func_call(const char* var_name,
                            hash_map func_ptrs,
                            struct list** return_struct_hierarchy,
                            struct list** output_vars);
+
+struct list* func_get_func_args(const char* var_ref,
+                                size_t args_start_index,
+                                struct list** args_range);
 
 struct list* func_get_func_call_args(const char* var_name,
                                      struct list* struct_hierarchy,
@@ -40,6 +46,15 @@ struct list* func_extract_func_arg_names(const char* func_name,
                                          struct list** func_ptr_args,
                                          char*** statement_arr,
                                          size_t* statement_arr_len);
+
+enum FuncDeclStatus func_get_func_decl(const char* func_name,
+                                       const char* ref_src_file,
+                                       const char** func_decl,
+                                       const char** func_src_file);
+
+void func_insert_func_decl_entry(const char* func_name,
+                                 const char* func_declaration,
+                                 const char* source_file);
 
 struct list* func_get_func_args_name(const char* func_name,
                                      struct list* args_declaration,

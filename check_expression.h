@@ -55,4 +55,7 @@ bool check_is_arg_assignment(const char* var_name, struct list* func_args_name);
 
 bool check_is_struct_root(const char* var_ref, size_t root_index);
 
+bool check_is_func_decl_in_scope(const char* func_decl, const char* decl_src_file,
+                                 const char* ref_src_file);
+
 #endif /* CHECK_EXPRESSION_H */

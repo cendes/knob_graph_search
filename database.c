@@ -4,6 +4,7 @@
 #include "list.h"
 #include "hash_map.h"
 #include "var_search.h"
+#include "func_call_parse.h"
 #include "database.h"
 
 static FILE* func_vars_visited_file;
@@ -54,11 +55,11 @@ hash_map database_read_func_vars_visited(const char* filename) {
   return func_var_database;
 }
 
-hash_map database_read_visited_func_decls(const char* filename) {
+void database_read_visited_func_decls(const char* filename) {
   visited_func_decls_file = fopen(filename, "a+");
   if (visited_func_decls_file == NULL) {
     perror("Could not open database: ");
-    return NULL;
+    return;
   }
 
   hash_map visited_funcs_decl_database = map_create();
@@ -67,17 +68,16 @@ hash_map database_read_visited_func_decls(const char* filename) {
     func = read_database_string(visited_func_decls_file);
     if (func != NULL) {
       char* func_declaration = read_database_string(visited_func_decls_file);
-      map_insert(visited_funcs_decl_database, func, func_declaration);
+      char* source_file = read_database_string(visited_func_decls_file);
+      func_insert_func_decl_entry(func, func_declaration, source_file);
     }
   } while(func != NULL);
-
-  return visited_funcs_decl_database;
 }
 
 static char* read_database_string(FILE* file) {
   size_t string_len;
   size_t bytes_read = fread(&string_len, sizeof(size_t), 1, file);
-  if (bytes_read == 0) {
+  if (bytes_read == 0 || string_len == 0) {
     return NULL;
   }
   
@@ -114,9 +114,11 @@ void database_write_func_vars_visited_entry(const char* func, const char* var,
 }
 
 void database_write_visited_func_decls_entry(const char* func,
-                                             const char* func_declaration) {
+                                             const char* func_declaration,
+                                             const char* source_file) {
   write_database_string(func, visited_func_decls_file);
   write_database_string(func_declaration, visited_func_decls_file);
+  write_database_string(source_file, visited_func_decls_file);
 
   int ret = fflush(visited_func_decls_file);
   if (ret != 0) {
@@ -125,6 +127,12 @@ void database_write_visited_func_decls_entry(const char* func,
 }
 
 static void write_database_string(const char* string, FILE* file) {
+  if (string == NULL) {
+    size_t zero = 0;
+    fwrite(&zero, sizeof(size_t), 1, file);
+    return;
+  }
+  
   size_t string_len = strlen(string);
   fwrite(&string_len, sizeof(size_t), 1, file);
   fwrite(string, 1, string_len, file);

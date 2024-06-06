@@ -230,6 +230,7 @@ bool check_is_var_declaration(const char* var_name, const char* var_ref) {
   bool is_define_arg = false;
   bool is_after_parenthesis = false;
   bool is_after_comma = false;
+  bool is_after_equals = false;
   while (i < strlen(var_ref)) {
     size_t token_start = i;
     bool has_space = false;
@@ -245,6 +246,15 @@ bool check_is_var_declaration(const char* var_name, const char* var_ref) {
           is_after_parenthesis = true;
         } else if (var_ref[token_start] == ')') {
           is_define_arg = false;
+        } else if (var_ref[token_start] == '=') {
+          is_after_equals = true;
+        }
+        consecutive_tokens = 0;
+      } else if (var_ref[token_start] == '*' &&
+                  ((is_after_equals && !is_after_comma) ||
+                   (is_after_parenthesis && !has_declaration))) {
+        if (consecutive_tokens > 0) {
+          int test = 1;
         }
         consecutive_tokens = 0;
       }
@@ -266,7 +276,7 @@ bool check_is_var_declaration(const char* var_name, const char* var_ref) {
     char* token = (char*) malloc(token_len + 1);
     strncpy(token, var_ref + token_start, token_len);
     token[token_len] = '\0';
-    if (strlen(token) > 0 && strcmp(token, "return") != 0 &&
+    if (strlen(token) > 0 && strcmp(token, "return") != 0 && strcmp(token, "case") &&
         !utils_str_in_array(C_TYPE_MODIFIERS, token,
                             UTILS_SIZEOF_ARR(C_TYPE_MODIFIERS)) &&
         (strcmp(token, "#define") == 0 || check_is_valid_varname(token)) &&
@@ -279,7 +289,12 @@ bool check_is_var_declaration(const char* var_name, const char* var_ref) {
         free(token);
         return true;
       }
-      consecutive_tokens++;
+      if (is_define_arg && !is_after_parenthesis && consecutive_tokens > 0) {
+        consecutive_tokens = 0;
+        is_define_arg = false;
+      } else {
+        consecutive_tokens++;
+      }
       if (consecutive_tokens == 2) {
         has_declaration = true;
       }
@@ -542,6 +557,13 @@ bool check_is_struct_root(const char* var_ref, size_t root_index) {
     (var_ref[root_index - 1] != '.' &&
      (root_index <= 1 ||
       (var_ref[root_index - 2] != '-' && var_ref[root_index - 1] != '>')));
+}
+
+bool check_is_func_decl_in_scope(const char* func_decl, const char* decl_src_file,
+                                 const char* ref_src_file) {
+  return (!check_is_static(func_decl) && strstr(func_decl, "#define") == NULL &&
+          strcmp(func_decl, "main") != 0) ||
+    strstr(decl_src_file, ".h") != NULL || strcmp(decl_src_file, ref_src_file) == 0;
 }
 
 

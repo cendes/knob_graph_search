@@ -37,6 +37,13 @@ struct func_ret_entry {
   struct list* output_args;
 };
 
+struct visited_func_ret_entry {
+  struct list* return_hierarchies;
+  struct list* output_args;
+};
+
+static hash_map visited_funcs_ret = map_create();
+
 static list* start_knob_var_search(const char* var_name,
                                    struct list* struct_hierarchy);
 
@@ -55,10 +62,13 @@ static bool get_local_ref(const char* var_name, const char* var_ref,
 static void handle_entry_point_return(hash_map func_ret_map);
 
 static void insert_func_ret_hierarchy(hash_map func_ret_map, const char* func_name,
-                                      struct list* return_hierarchy);
+                                      const char* src_file, struct list* return_hierarchy);
 
 static void insert_func_ret_output_args(hash_map func_ret_map, const char* func_name,
-                                        struct list* output_args);
+                                        const char* src_file, struct list* output_args);
+
+static bool func_ret_hierarchy_visited(const char* func_entry_key,
+                                       struct list* return_hierarchy);
 
 //static char* generate_struct_key(struct list* struct_hierarchy);
 
@@ -303,7 +313,7 @@ bool var_get_func_refs(const char* var_name, struct list* struct_hierarchy,
       int test = 1;
     }
 
-    if (strstr(var_ref, "__rdma_create_kernel_id(net, event_handler, context, ps, qp_type, KBUILD_MODNAME)") != NULL) {
+    if (strstr(var_ref,"err = devlink_reload(devlink, &init_net, DEVLINK_RELOAD_ACTION_DRIVER_REINIT, DEVLINK_RELOAD_LIMIT_UNSPEC, &actions_performed, NULL);") != NULL) {
       int test = 1;
     }
     
@@ -352,9 +362,9 @@ bool var_get_func_refs(const char* var_name, struct list* struct_hierarchy,
       }
       if (func_ret_map != NULL) {
         if (*return_struct_hierarchy != NULL) {
-          insert_func_ret_hierarchy(*func_ret_map, func_name, *return_struct_hierarchy);
+          insert_func_ret_hierarchy(*func_ret_map, func_name, var_ref_arr[0], *return_struct_hierarchy);
         }
-        insert_func_ret_output_args(*func_ret_map, func_name, additional_output_args);
+        insert_func_ret_output_args(*func_ret_map, func_name, var_ref_arr[0], additional_output_args);
       }
 
       struct list* struct_matches = struct_get_struct_matches(var_ref, var_name, struct_hierarchy);
@@ -367,7 +377,7 @@ bool var_get_func_refs(const char* var_name, struct list* struct_hierarchy,
       }
       list_free_nodes(struct_matches);
     }
-    utils_free_str_arr((char**) var_ref_arr);
+    //utils_free_str_arr((char**) var_ref_arr);
     //free(var_ref);
     //utils_free_if_different(var_ref, original_var_ref);
   }
@@ -532,16 +542,25 @@ static bool get_local_ref(const char* var_name, const char* var_ref, const char*
 
 static void handle_entry_point_return(hash_map func_ret_map) {
   hash_map next_ret_map = map_create();
-  struct list* ret_funcs = map_get_key_list(func_ret_map);
-  if (ret_funcs->len == 0) {
+  struct list* func_key_list = map_get_key_list(func_ret_map);
+  if (func_key_list->len == 0) {
     return;
   }
-  for (struct list_node* curr_func = ret_funcs->head; curr_func != NULL;
+  for (struct list_node* curr_func = func_key_list->head; curr_func != NULL;
        curr_func = curr_func->next) {
-    char* ret_func = (char*) curr_func->payload;
-    //printf("Function return: %s\n", ret_func);
+    char* func_key = (char*) curr_func->payload;
+    char** func_key_arr;
+    utils_split_str(func_key, &func_key_arr);
+    const char* ret_func = func_key_arr[0];
+    const char* func_src = func_key_arr[1];
+
+    const char* ret_func_decl;
+    const char* func_src_tmp;
+    func_get_func_decl(ret_func, func_src, &ret_func_decl, &func_src_tmp);
+    
+    // printf("Function return: %s\n", ret_func);
     struct func_ret_entry* entry =
-      (struct func_ret_entry*) map_get(func_ret_map, ret_func);
+      (struct func_ret_entry*) map_get(func_ret_map, func_key);
 
     struct func_var_entry* func_var_entry = var_get_func_var_entry(ret_func, "<func>");
     struct list* func_refs;
@@ -587,28 +606,43 @@ static void handle_entry_point_return(hash_map func_ret_map) {
       
       struct list* return_hierarchy;
       struct list* output_args;
-      if (check_is_func(func_ref) && !check_is_var_declaration(ret_func, func_ref)) {
+      if (strcmp(caller_func, "<global>") != 0 &&
+          check_is_func(func_ref) && !check_is_var_declaration(ret_func, func_ref) &&
+          check_is_func_decl_in_scope(ret_func_decl, func_src, func_ref_arr[0])) {
+        if (strcmp(func_ref,"kernel/bpf/syscall.c link_create 4250 prog = bpf_prog_get(attr->link_create.prog_fd);") == 0) {
+          int test = 1;
+        }
         if (entry->return_hierarchy != NULL) {
+          if (strcmp(caller_func, "cifs_mount") == 0) {
+            int test = 1;
+          }
           assignment_handle_var_assignment(func_ref_arr[1], func_ref, func_ref_arr,
                                            func_ref_arr_len, NULL,
                                            entry->return_hierarchy, true,
                                            map_create(), &return_hierarchy,
                                            &output_args);
           if (return_hierarchy != NULL) {
-            insert_func_ret_hierarchy(next_ret_map, caller_func, return_hierarchy);
+            insert_func_ret_hierarchy(next_ret_map, caller_func, func_ref_arr[0],
+                                      return_hierarchy);
           }
-          insert_func_ret_output_args(next_ret_map, caller_func, output_args);
+          insert_func_ret_output_args(next_ret_map, caller_func, func_ref_arr[0],
+                                      output_args);
         }
 
         if (entry->output_args != NULL) {
+          if (strcmp(caller_func, "cifs_mount") == 0) {
+            int test = 1;
+          }
           func_handle_entrypoint_out_args(ret_func, caller_func, entry->output_args,
                                           func_ref, func_ref_arr, func_ref_arr_len,
                                           &return_hierarchy,
                                           &output_args);
           if (return_hierarchy != NULL) {
-            insert_func_ret_hierarchy(next_ret_map, caller_func, return_hierarchy);
+            insert_func_ret_hierarchy(next_ret_map, caller_func, func_ref_arr[0],
+                                      return_hierarchy);
           }
-          insert_func_ret_output_args(next_ret_map, caller_func, output_args);
+          insert_func_ret_output_args(next_ret_map, caller_func, func_ref_arr[0],
+                                      output_args);
         }
       }
 
@@ -731,32 +765,45 @@ struct func_var_entry* var_create_func_var_entry(const char* func, const char* v
 }
 
 static void insert_func_ret_hierarchy(hash_map func_ret_map, const char* func_name,
-                                      struct list* return_hierarchy) {
+                                      const char* src_file, struct list* return_hierarchy) {
+  char* func_entry_key = (char*) malloc(strlen(func_name) + strlen(src_file) + 2);
+  sprintf(func_entry_key, "%s %s", func_name, src_file);
+
+  if (func_ret_hierarchy_visited(func_entry_key, return_hierarchy)) {
+    free(func_entry_key);
+    return;
+  }
+  
   struct func_ret_entry* entry;
-  if (map_contains(func_ret_map, func_name)) {
-    entry = (struct func_ret_entry*) map_get(func_ret_map, func_name);
+  if (map_contains(func_ret_map, func_entry_key)) {
+    entry = (struct func_ret_entry*) map_get(func_ret_map, func_entry_key);
+    free(func_entry_key);
   } else {
     entry = (struct func_ret_entry*) malloc(sizeof(struct func_ret_entry));
     entry->output_args = NULL;
-    map_insert(func_ret_map, func_name, entry);
+    map_insert(func_ret_map, func_entry_key, entry);
   }
 
   entry->return_hierarchy = return_hierarchy;
 }
 
 static void insert_func_ret_output_args(hash_map func_ret_map, const char* func_name,
-                                       struct list* output_args) {
+                                        const char* src_file, struct list* output_args) {
   if (output_args->len == 0) {
     return;
   }
+
+  char* func_entry_key = (char*) malloc(strlen(func_name) + strlen(src_file) + 2);
+  sprintf(func_entry_key, "%s %s", func_name, src_file);
   struct func_ret_entry* entry;
-  if (map_contains(func_ret_map, func_name)) {
-    entry = (struct func_ret_entry*) map_get(func_ret_map, func_name);
+  if (map_contains(func_ret_map, func_entry_key)) {
+    entry = (struct func_ret_entry*) map_get(func_ret_map, func_entry_key);
+    free(func_entry_key);
   } else {
     entry = (struct func_ret_entry*) malloc(sizeof(struct func_ret_entry));
     entry->return_hierarchy = NULL;
     entry->output_args = list_create();
-    map_insert(func_ret_map, func_name, entry);
+    map_insert(func_ret_map, func_entry_key, entry);
   }
 
   if (entry->output_args == NULL) {
@@ -764,6 +811,47 @@ static void insert_func_ret_output_args(hash_map func_ret_map, const char* func_
   }
 
   var_out_arg_extend_unique(entry->output_args, output_args);
+}
+
+static bool func_ret_hierarchy_visited(const char* func_entry_key,
+                                       struct list* return_hierarchy) {
+  struct visited_func_ret_entry* visited_entry;
+  if (!map_contains(visited_funcs_ret, func_entry_key)) {
+    visited_entry =
+      (struct visited_func_ret_entry*) malloc(sizeof(struct visited_func_ret_entry));
+    visited_entry->return_hierarchies = list_create();
+    list_append(visited_entry->return_hierarchies, return_hierarchy);
+    visited_entry->output_args = list_create();
+    map_insert(visited_funcs_ret, func_entry_key, visited_entry);
+    return false;
+  }
+  visited_entry =
+    (struct visited_func_ret_entry*) map_get(visited_funcs_ret, func_entry_key);
+
+
+  for (struct list_node* curr_hierarchy = visited_entry->return_hierarchies->head;
+       curr_hierarchy != NULL; curr_hierarchy = curr_hierarchy->next) {
+    struct list* visited_hierarchy = (struct list*) curr_hierarchy->payload;
+    if (visited_hierarchy->len != return_hierarchy->len) {
+      continue;
+    }
+
+    bool hierarchy_equal = true;
+    struct list_node* curr_visited_segment = visited_hierarchy->head;
+    for (struct list_node* curr = return_hierarchy->head; curr != NULL; curr = curr->next) {
+      if (strcmp((char*) curr->payload, (char*) curr_visited_segment->payload) != 0) {
+        hierarchy_equal = false;
+        break;
+      }
+      curr_visited_segment = curr_visited_segment->next;
+    }
+    if (hierarchy_equal) {
+      return true;
+    }
+  }
+
+  list_append(visited_entry->return_hierarchies, return_hierarchy);
+  return false;
 }
 
 /* void var_remove_func_var_visited(const char* func, const char* var) { */
