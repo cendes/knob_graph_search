@@ -674,7 +674,7 @@ static struct list* get_func_args_declaration(const char* func_name,
                                               struct list* func_args,
                                               char*** func_declaration_arr,
                                               size_t* func_declaration_arr_len) {
-  if (strcmp(func_name, "offsetof") == 0) {
+  if (strcmp(func_name, "nla_total_size") == 0) {
     int test = 1;
   }
   struct list* func_declarations_arr;
@@ -809,7 +809,7 @@ static struct list* get_func_declarations(const char* func_name,
   for (struct list_node* curr = func_refs->head; curr != NULL; curr = curr->next) {
     char* func_ref = (char*) curr->payload;
     char** func_ref_arr;
-    if (strstr(func_ref, "kernel/sched/completion.c complete 28 void complete(struct completion *x)") != NULL) {
+    if (strstr(func_ref,"struct cpuidle_monitor* (*do_register) (void);") != NULL) {
       int test = 1;
     }
     size_t func_ref_arr_len = utils_split_str(func_ref, &func_ref_arr);
@@ -818,7 +818,7 @@ static struct list* get_func_declarations(const char* func_name,
     utils_free_if_different(func_ref, full_func_ref);
     func_ref = full_func_ref;
 
-    if (strcmp(func_ref, "kernel/rcu/refscale.c VERBOSE_SCALEOUT 47 do {") == 0) {
+    if (strcmp(func_ref, "{ offsetof(struct bpf_iter__task_file, task), PTR_TO_BTF_ID_OR_NULL }, { offsetof(struct bpf_iter__task_file, file), PTR_TO_BTF_ID_OR_NULL }, }, .seq_info\t\t= &task_file_seq_info, };") == 0) {
       int test = 1;
     }
 

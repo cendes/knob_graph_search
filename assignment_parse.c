@@ -27,7 +27,7 @@ bool assignment_handle_var_assignment(const char* func_name,
                                       bool is_return_assingment,
                                       hash_map func_ptrs,
                                       struct list** return_hierarchy,
-                                      struct list** output_args) {
+                                      struct list** output_args) { 
   if (strcmp(var_ref, "net/xfrm/xfrm_policy.c xfrm_bundle_lookup 2954 pols[0] = xfrm_policy_lookup(net, fl, family, dir, if_id);") == 0) {
     int test = 1;
   }

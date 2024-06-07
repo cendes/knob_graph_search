@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include "c_keywords.h"
 #include "utils.h"
 #include "sanitize_expression.h"
@@ -14,16 +15,19 @@
 static char* get_full_expr(const char* source_file, size_t line_number);
 
 static char* get_clean_line(char** line_buf, FILE* f, size_t* buf_size,
-                            size_t* open_comments);
+                            bool* has_open_comment, bool* in_if_0_block);
 
-static size_t remove_comments(char* line_buf, size_t bytes_read,
-                              size_t open_comments, char** line);
+static char* remove_comments(char* line_buf, size_t bytes_read,
+                             bool* has_open_comment, bool* in_if_0_block);
 
 static bool is_curr_define(char** line);
 
 static bool get_open_brackets(char* line, size_t* open_brackets);
 
 char* file_get_multiline_expr(const char* var_ref, const char** var_ref_arr) {
+  if (strstr(var_ref, "proc_mkdir") != NULL) {
+    int test = 1;
+  }
   char* san_var_ref = sanitize_remove_string_literals(var_ref);
   char* trimmed_var_ref = utils_trim_str(san_var_ref);
   utils_free_if_both_different(san_var_ref, var_ref, trimmed_var_ref);
@@ -42,7 +46,7 @@ char* file_get_multiline_expr(const char* var_ref, const char** var_ref_arr) {
       (san_var_ref[last] != ';' && san_var_ref[last] != '{' &&
        var_ref_arr[3][0] != '.' && strstr(san_var_ref, "#define") == NULL)) {
     if (check_has_mismatched_parenthesis(san_var_ref) ||
-        (!check_is_control_flow_expr(san_var_ref) && !check_is_func(san_var_ref))) {
+        !check_is_control_flow_expr(san_var_ref)) {
       multiline_var_ref = get_full_expr(var_ref_arr[0], atoi(var_ref_arr[2]));
     }
   } else if (strstr(san_var_ref, "#define") == NULL &&
@@ -117,7 +121,7 @@ char* file_get_multiline_expr(const char* var_ref, const char** var_ref_arr) {
 }
 
 static char* get_full_expr(const char* source_file, size_t line_number) {
-  if (strcmp(source_file, "fs/cifs/smbdirect.c") == 0) {
+  if (strcmp(source_file, "kernel/bpf/task_iter.c") == 0) {
     int test = 1;
   }
   FILE* f = fopen(source_file, "r");
@@ -130,17 +134,20 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
   size_t curr_expr_size = EXPR_SIZE;
   expr[0] = '\0';
   size_t curr_idx = 0;
-  size_t open_comments = 0;
+  size_t open_brackets = 0;
+  bool prev_bracket_assign = false;
   bool prev_define = false;
+  bool in_if_0_block = false;
+  bool has_open_comment = false;
   char* line_buf = NULL;
   size_t buf_size = 0;
   char* line;
   do {
-    if (curr_line == 1574) {
+    if (curr_line == 541) {
       int test = 1;
     }
     curr_line++;
-    line = get_clean_line(&line_buf, f, &buf_size, &open_comments);
+    line = get_clean_line(&line_buf, f, &buf_size, &has_open_comment, &in_if_0_block);
     if (line == NULL) {
       utils_free_if_different(line, line_buf);
       free(line_buf);
@@ -166,9 +173,34 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
       int test = 1;
     }
 
+    if (open_brackets > 0) {
+      size_t num_open_brackets = utils_get_char_occurences(line, '{', NULL);
+      size_t num_close_brackets = utils_get_char_occurences(line, '}', NULL);
+      open_brackets += num_open_brackets;
+      open_brackets -= num_close_brackets;
+    }
+
+    size_t last = strlen(line) - 1;
+    bool curr_bracket_assign = false;
+    if (line[last] == '{' && last > 0) {
+      size_t search_idx = last - 1;
+      while (search_idx >= 0 && isspace(line[search_idx])) {
+        search_idx--;
+      }
+      if (check_is_assignment_op(line, search_idx)) {
+        open_brackets = 1;
+        curr_bracket_assign = true;
+      }
+    }
+    
     if (line[0] == '#' && !check_has_mismatched_parenthesis(line)) {
       expr[0] = '\0';
       curr_idx = 0;
+    } else if (line[0] == '.' && prev_bracket_assign)  {
+      open_brackets = 0;
+      strncpy(expr, line, strlen(line));
+      curr_idx = strlen(line);
+      expr[curr_idx] = '\0';
     } else {
       //if (strlen(expr) > 0 && expr[strlen(expr) - 1] == '(') {
       //   expr[curr_idx] = ' ';
@@ -186,9 +218,16 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
       curr_idx += strlen(line);
       expr[curr_idx] = '\0';
     }
+    
 
-    size_t last = strlen(line) - 1;
-    if (utils_char_in_array(";{}", line[last], 3) ||
+    if (line[0] == '.') {
+      int test = 1;
+    }
+
+    if (line[last] == ';' || line[last] == '}' ||
+        (line[last] == '{' && open_brackets == 0) ||
+        (expr[0] == '.' && open_brackets == 0 &&
+         !check_has_mismatched_parenthesis(expr)) ||
         (prev_define && line[last] == ')')) {
       if (curr_line >= line_number) {
         utils_free_if_different(line, line_buf);
@@ -205,6 +244,7 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
     }
 
     prev_define = curr_define;
+    prev_bracket_assign = curr_bracket_assign;
     utils_free_if_different(line, line_buf);
   } while (line != NULL);
 
@@ -228,10 +268,11 @@ ssize_t file_get_func_from_src(const char* source_file, const char* func_name,
 
   *func_start_line = -1;
   size_t open_brackets = 0;
-  size_t open_comments = 0;
   bool bracket_found = false;
   bool is_macro = false;
   bool prev_define = false;
+  bool in_if_0_block = false;
+  bool has_open_comment = false;
   size_t curr_line = 0;
   char* expr = (char*) malloc(EXPR_SIZE);
   size_t curr_expr_size = EXPR_SIZE;
@@ -242,7 +283,7 @@ ssize_t file_get_func_from_src(const char* source_file, const char* func_name,
   char* line;
   do {
     curr_line++;
-    line = get_clean_line(&line_buf, f, &buf_size, &open_comments);
+    line = get_clean_line(&line_buf, f, &buf_size, &has_open_comment, &in_if_0_block);
     if (line == NULL) {
       utils_free_if_different(line, line_buf);
       free(line_buf);
@@ -318,16 +359,17 @@ ssize_t file_get_func_end_line(const char* source_file, size_t func_start_line) 
   }
 
   size_t open_brackets = 0;
-  size_t open_comments = 0;
   bool bracket_found = false;
   bool is_macro = false;
+  bool has_open_comment = false;
+  bool in_if_0_block = false;
   size_t curr_line = 0;
   char* line_buf = NULL;
   size_t buf_size = 0;
   char* line;
   do {
     curr_line++;
-    line = get_clean_line(&line_buf, f, &buf_size, &open_comments);
+    line = get_clean_line(&line_buf, f, &buf_size, &has_open_comment, &in_if_0_block);
     if (line == NULL) {
       utils_free_if_different(line, line_buf);
       free(line_buf);
@@ -362,47 +404,59 @@ ssize_t file_get_func_end_line(const char* source_file, size_t func_start_line) 
 }
 
 static char* get_clean_line(char** line_buf, FILE* f, size_t* buf_size,
-                            size_t* open_comments) {
+                            bool* has_open_comment, bool* in_if_0_block) {
   ssize_t bytes_read = getline(line_buf, buf_size, f);
   if (bytes_read < 0) {
     return NULL;
   }
   (*line_buf)[bytes_read] = '\0';
 
-  char* line;
-  *open_comments = remove_comments(*line_buf, bytes_read, *open_comments, &line);
-  return line;
+  return remove_comments(*line_buf, bytes_read, has_open_comment, in_if_0_block);
 }
 
-static size_t remove_comments(char* line_buf, size_t bytes_read,
-                              size_t open_comments, char** line) {
-  char* curr_line_ptr = line_buf;
-  bool has_close_comment = false;
-  do {
-    if (strstr(curr_line_ptr, "/*") != NULL) {
-      open_comments++;
-    }
-    
-    if (strstr(curr_line_ptr, "*/") != NULL) {
-      if (open_comments == 0) {
-        int test = 1;
-      }
-      curr_line_ptr = strstr(curr_line_ptr, "*/") + strlen("*/");
-      has_close_comment = true;
-      open_comments--;
-    } else {
-      has_close_comment = false;
-    }
-  } while (has_close_comment);
-  
-  if (open_comments > 0) {
+static char* remove_comments(char* line_buf, size_t bytes_read,
+                             bool* has_open_comment, bool* in_if_0_block) {
+  if (strstr(line_buf, "#if 0") != NULL || strstr(line_buf, "#elif 0")) {
+    *in_if_0_block = true;
     line_buf[0] = '\0';
-    *line = line_buf;
-    return open_comments;
+    return line_buf;
+  }
+  if (*in_if_0_block) {
+    if (strstr(line_buf, "#endif") != NULL || strstr(line_buf, "#else") != NULL ||
+        (strstr(line_buf, "#elif") != NULL && strstr(line_buf, "#elif 0") == NULL)) {
+      *in_if_0_block = false;
+    }
+    line_buf[0] = '\0';
+    return line_buf;
   }
   
-  *line = sanitize_remove_comments_and_strip(line_buf);
-  return 0;
+  /* char* curr_line_ptr = line_buf; */
+  /* bool has_close_comment = false; */
+  /* size_t prev_open_comments = open_comments; */
+  /* do { */
+  /*   if (strstr(curr_line_ptr, "/\*") != NULL) { */
+  /*     open_comments++; */
+  /*   } */
+    
+  /*   if (strstr(curr_line_ptr, "*\/") != NULL) { */
+  /*     if (open_comments == 0) { */
+  /*       int test = 1; */
+  /*     } */
+  /*     curr_line_ptr = strstr(curr_line_ptr, "*\/") + strlen("*\/"); */
+  /*     has_close_comment = true; */
+  /*     open_comments--; */
+  /*   } else { */
+  /*     has_close_comment = false; */
+  /*   } */
+  /* } while (has_close_comment); */
+  
+  /* if (prev_open_comments > 0 && open_comments > 0) { */
+  /*   line_buf[0] = '\0'; */
+  /*   *line = line_buf; */
+  /*   return open_comments; */
+  /* } */
+  
+  return sanitize_remove_comments_and_strip(line_buf, has_open_comment);
 }
 
 static bool is_curr_define(char** line) {
@@ -437,11 +491,13 @@ char* file_find_struct_name(const char* source_file, size_t line_number) {
   char* var_name = NULL;
   size_t curr_line = 0;
   char* line_buf = NULL;
+  bool in_if_0_block = false;
+  bool has_open_comment = false;
   size_t buf_size = 0;
-  size_t open_comments = 0;
   do {
     curr_line++;
-    char* line = get_clean_line(&line_buf, f, &buf_size, &open_comments);
+    char* line = get_clean_line(&line_buf, f, &buf_size, &has_open_comment,
+                                &in_if_0_block);
     if (line == NULL) {
       utils_free_if_different(line, line_buf);
       free(line_buf);

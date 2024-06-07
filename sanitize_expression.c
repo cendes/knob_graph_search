@@ -7,8 +7,12 @@
 #include "check_expression.h"
 #include "sanitize_expression.h"
 
-static ssize_t get_comment_index(char* curr_var_ref, const char* comment_type);
-static char* remove_comment(char* curr_var_ref, ssize_t comment_index);
+static size_t get_comment_indices(const char* curr_var_ref, const char* comment_type,
+                                  size_t** comment_indices);
+
+static char* remove_comment_after(const char* curr_var_ref, ssize_t comment_index);
+
+static char* remove_comment_before(const char* curr_var_ref, size_t comment_index);
 
 char* sanitize_extract_varname(const char* var_ref) {
   const char* var_ref_start = var_ref;
@@ -51,67 +55,129 @@ char* sanitize_peel_parenthesis(const char* var_ref) {
   return (char*) var_ref;
 }
 
-char* sanitize_remove_comments_and_strip(const char* var_ref) {
-  char* curr_var_ref = (char*) var_ref;
-  char* new_var_ref = NULL;
-  ssize_t comment_index = get_comment_index(curr_var_ref, "//");
-  if (comment_index >= 0) {
-    new_var_ref = remove_comment(curr_var_ref, comment_index);
+char* sanitize_remove_comments_and_strip(char* var_ref, bool* has_open_comment) {
+  size_t* comment_indices;
+  char* curr_var_ref = var_ref;
+  if (*has_open_comment) {
+    size_t num_comments = get_comment_indices(var_ref, "*/", &comment_indices);
+    if (num_comments > 0) {
+      curr_var_ref = remove_comment_before(var_ref, comment_indices[0]);
+      *has_open_comment = false;
+      free(comment_indices);
+    } else {
+      var_ref[0] = '\0';
+      return var_ref;
+    }
+  } else {
+    size_t num_comments = get_comment_indices(var_ref, "//", &comment_indices);
+    if (num_comments > 0) {
+      curr_var_ref = remove_comment_after(var_ref, comment_indices[0]);
+    }
+    free(comment_indices);
+    
+    num_comments = get_comment_indices(curr_var_ref, "/*", &comment_indices);
+    struct list* comment_ranges = list_create();
+    size_t curr_close_idx = 0;
+    for (size_t i = 0; i < num_comments; i++) {
+      if (comment_indices[i] < curr_close_idx) {
+        continue;
+      }
+      curr_close_idx = comment_indices[i] + 3;
+      while (curr_close_idx < strlen(curr_var_ref) &&
+             curr_var_ref[curr_close_idx - 1] != '*' &&
+             curr_var_ref[curr_close_idx] != '/') {
+        curr_close_idx++;
+      }
+      curr_close_idx++;
+      if (curr_close_idx > strlen(curr_var_ref)) {
+        curr_close_idx = strlen(curr_var_ref);
+        *has_open_comment = true;
+      }
+      struct index_range* comment_range =
+        (struct index_range*) malloc(sizeof(struct index_range));
+      *comment_range = {comment_indices[i], curr_close_idx};
+      list_append(comment_ranges, comment_range);
+    }
+    
+    free(comment_indices);
+    char* new_var_ref = sanitize_remove_substring(curr_var_ref, comment_ranges);
+    list_free(comment_ranges);
+    utils_free_if_both_different(curr_var_ref, new_var_ref, var_ref);
     curr_var_ref = new_var_ref;
   }
   
-  comment_index = get_comment_index(curr_var_ref, "/*");
-  if (comment_index >= 0) {
-    if (new_var_ref == NULL) {
-      curr_var_ref = remove_comment(curr_var_ref, comment_index);
-    } else {
-      curr_var_ref[comment_index] = '\0';
-    }
-  }
+  /* char* curr_var_ref = (char*) var_ref; */
+  /* char* new_var_ref = NULL; */
+  /* ssize_t comment_index = get_comment_index(curr_var_ref, "//"); */
+  /* if (comment_index >= 0) { */
+  /*   new_var_ref = remove_comment(curr_var_ref, comment_index); */
+  /*   curr_var_ref = new_var_ref; */
+  /* } */
+
+  
+  /* comment_index = get_comment_index(curr_var_ref, "/\*"); */
+  /* if (comment_index >= 0) { */
+  /*   if (new_var_ref == NULL) { */
+  /*     curr_var_ref = remove_comment(curr_var_ref, comment_index); */
+  /*   } else { */
+  /*     curr_var_ref[comment_index] = '\0'; */
+  /*   } */
+  /* } */
 
   char* trimmed_var_ref = utils_trim_str(curr_var_ref);
-  utils_free_if_both_different(curr_var_ref, var_ref, trimmed_var_ref);
+  utils_free_if_both_different(curr_var_ref, trimmed_var_ref, var_ref);
   return trimmed_var_ref;
 }
 
-static ssize_t get_comment_index(char* curr_var_ref, const char* comment_type) {
+static size_t get_comment_indices(const char* curr_var_ref, const char* comment_type,
+                                  size_t** comment_indices) {
+  if (strcmp(curr_var_ref,"\t\t/* \"typedef void new_void\", \"const void\"...etc */\n") == 0) {
+    int test = 1;
+  }
+  size_t* all_comment_indices;
+  size_t total_num_comments = utils_get_str_occurences(curr_var_ref, comment_type, &all_comment_indices);
   struct list* string_ranges = check_get_string_ranges(curr_var_ref);
   if (string_ranges->len == 0) {
     list_free(string_ranges);
-    char* comment_ptr = strstr(curr_var_ref, comment_type);
-    if (comment_ptr == NULL) {
-      return -1;
-    } else {
-      return comment_ptr - curr_var_ref;
-    }
+    *comment_indices = all_comment_indices;
+    return total_num_comments;
   }
-  
-  size_t* comment_indices;
-  size_t num_comments = utils_get_str_occurences(curr_var_ref, comment_type,
-                                                 &comment_indices);
-  for (size_t i = 0; i < num_comments; i++) {
+
+  *comment_indices = (size_t*) malloc(sizeof(size_t) * total_num_comments);
+  size_t num_comments = 0;
+  for (size_t i = 0; i < total_num_comments; i++) {
+    bool is_comment = true;
     for (struct list_node* curr = string_ranges->head; curr != NULL;
          curr = curr->next) {
       struct index_range* curr_range = (struct index_range*) curr->payload;
-      if (comment_indices[i] < curr_range->start ||
-          comment_indices[i] > curr_range->end) {
-        size_t comment_index = comment_indices[i];
-        free(comment_indices);
-        list_free(string_ranges);
-        return comment_index;
+      if (all_comment_indices[i] >= curr_range->start &&
+          all_comment_indices[i] <= curr_range->end) {
+        is_comment = false;
+        break;
       }
+    }
+    if (is_comment) {
+      (*comment_indices)[num_comments] = all_comment_indices[i];
+      num_comments++;
     }
   }
 
-  free(comment_indices);
+  free(all_comment_indices);
   list_free(string_ranges);
-  return -1;
+  return num_comments;
 }
 
-static char* remove_comment(char* curr_var_ref, ssize_t comment_index) {
+static char* remove_comment_after(const char* curr_var_ref, ssize_t comment_index) {
   char* new_var_ref = (char*) malloc(comment_index + 1);
   strncpy(new_var_ref, curr_var_ref, comment_index);
   new_var_ref[comment_index] = '\0';
+  return new_var_ref;
+}
+
+static char* remove_comment_before(const char* curr_var_ref, size_t comment_index) {
+  size_t str_size = strlen(curr_var_ref) - comment_index;
+  char* new_var_ref = (char*) malloc(str_size);
+  strncpy(new_var_ref, curr_var_ref + comment_index + 2, str_size);
   return new_var_ref;
 }
 
@@ -149,6 +215,19 @@ char* sanitize_remove_casts(const char* var_ref) {
   struct list* cast_list = list_create();
   for (size_t i = 0; i < strlen(var_ref); i++) {
     if (var_ref[i] == '(' && (i == 0 || !check_is_valid_varname_char(var_ref[i - 1]))) {
+      if (strcmp(var_ref,"list_for_each_safe (item, tmp, list) kfree (list_entry (item, struct frag, list));") == 0) {
+        int test = 1;
+      }
+      if (i > 0) {
+        size_t curr_char = i - 1;
+        while(curr_char > 0 && isspace(var_ref[curr_char])) {
+          curr_char--;
+        }
+        if (check_is_valid_varname_char(var_ref[curr_char])) {
+          continue;
+        }
+      }
+      
       size_t expr_end = check_recur_with_parenthesis(var_ref, i + 1, '(');
       if (expr_end >= strlen(var_ref)) {
         continue;
@@ -197,13 +276,15 @@ char* sanitize_remove_casts(const char* var_ref) {
         }
 
         if (var_ref[next_char] == '*' || var_ref[next_char] == '&' || var_ref[next_char] == '-') {
+          int test = 1;
           // TODO: check if it is really a cast or not
-        } else if ((utils_char_in_array(C_UNARY_OPERANDS, var_ref[next_char],
-                                        UTILS_SIZEOF_ARR(C_UNARY_OPERANDS)) ||
-                    !utils_char_in_array(C_OPERANDS, var_ref[next_char],
-                                         UTILS_SIZEOF_ARR(C_OPERANDS))) &&
-                   var_ref[next_char] != '[' && var_ref[next_char] != ']') {
+        } else if (utils_char_in_array(C_UNARY_OPERANDS, var_ref[next_char],
+                                       UTILS_SIZEOF_ARR(C_UNARY_OPERANDS)) ||
+                   check_is_valid_varname_char(var_ref[next_char]) ||
+                   var_ref[next_char] == '(') {
           is_cast = true;
+        } else {
+          int test = 1;
         }
       }
       

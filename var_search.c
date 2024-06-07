@@ -296,6 +296,9 @@ bool var_get_func_refs(const char* var_name, struct list* struct_hierarchy,
       char* san_var_ref = sanitize_remove_casts(var_ref);
       //utils_free_if_different(var_ref, san_var_ref);
       char* full_var_ref = file_get_multiline_expr(san_var_ref, var_ref_arr);
+      if (strstr(full_var_ref, "list_for_each_safe (item, tmp, list) kfree (list_entry (item, struct frag, list));") != NULL) {
+        int test = 1;
+      }
       utils_free_if_both_different(san_var_ref, full_var_ref, var_ref);
       list_append(new_full_var_refs, full_var_ref);
       //char* original_var_ref = var_ref;
@@ -394,7 +397,7 @@ struct list* var_get_local_var_refs(const char* var_name, const char* func_name,
                                     const char** statement_arr, int statement_arr_len,
                                     bool is_func_declaration,
                                     struct list** global_var_refs) {
-  if (strcmp(var_name, "x") == 0 && strcmp(func_name, "HASH_MIX") == 0) {
+  if (strcmp(var_name, "__u") == 0 && strcmp(func_name, "READ_ONCE") == 0) {
     int test = 1;
   }
   const char* original_var_name = var_name;

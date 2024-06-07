@@ -26,7 +26,17 @@ char* token_find_func_name(const char* var_ref) {
 }
 
 char* token_get_func_name(const char* var_ref, size_t args_start_index) {
-  ssize_t func_name_start = args_start_index - 1;
+  if (strcmp(var_ref,"net/ieee802154/nl802154.c nl802154_prepare_wpan_dev_dump 267 list_for_each_entry(tmp, &(*rdev)->wpan_dev_list, list) {") == 0) {
+    int test = 1;
+  }
+  if (check_is_func_ptr(var_ref)) {
+    return NULL;
+  }
+  ssize_t func_name_end = args_start_index - 1;
+  while(func_name_end >= 0 && isspace(var_ref[func_name_end])) {
+    func_name_end--;
+  }
+  ssize_t func_name_start = func_name_end;
   while (func_name_start >= 0 &&
          (check_is_valid_varname_char(var_ref[func_name_start]) ||
           utils_char_in_array(".>", var_ref[func_name_start], 2))) {
@@ -38,7 +48,7 @@ char* token_get_func_name(const char* var_ref, size_t args_start_index) {
     }
   }
 
-  size_t func_name_len = args_start_index - func_name_start - 1;
+  size_t func_name_len = func_name_end - func_name_start;
   char* func_name = (char*) malloc(func_name_len + 1);
   strncpy(func_name, var_ref + func_name_start + 1, func_name_len);
   func_name[func_name_len] = '\0';
