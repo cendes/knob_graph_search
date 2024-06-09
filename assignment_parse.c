@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #include "list.h"
 #include "hash_map.h"
 #include "utils.h"
@@ -212,8 +213,9 @@ bool assignment_get_assigned_var_funcs(const char* func_name,
       if (entry == NULL) {
         struct list* global_var_refs;
         assigned_var_refs = var_get_local_var_refs(assigned_var, func_name,
+                                                   var_ref_arr[0], -1,
                                                    var_ref_arr, var_ref_arr_len,
-                                                   false, &global_var_refs);
+                                                   &global_var_refs);
         if (assigned_var_refs == NULL) {
           entry = var_create_func_var_entry("<global>", root_assignment_name);
           is_global = true;
@@ -234,6 +236,8 @@ bool assignment_get_assigned_var_funcs(const char* func_name,
     if (!entry->locked) {
       entry->locked = true;
       if (is_global) {
+        printf("Local variable not found: Function %s, Variable %s\n",
+               func_name, root_assignment_name);
         var_get_global_var_refs(root_assignment_name, struct_hierarchy,
                                 assigned_var_refs);
         *return_hierarchy = NULL;

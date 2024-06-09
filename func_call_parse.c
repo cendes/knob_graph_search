@@ -24,6 +24,7 @@ static hash_map visited_func_decls = map_create();
 struct func_decl_entry {
   const char* source_file;
   const char* func_declaration;
+  size_t line_number;
 };
 
 static void append_arg(struct list* args_list, struct list* args_range,
@@ -141,6 +142,9 @@ bool func_handle_func_call(const char* var_name,
                            hash_map func_ptrs,
                            struct list** return_struct_hierarchy,
                            struct list** output_vars) {
+  if (strcmp(var_ref, "net/core/neighbour.c ___neigh_create 629 if (atomic_read(&tbl->entries) > (1 << nht->hash_shift))") == 0) {
+    int test = 1;
+  }
   bool has_match = false;
   *return_struct_hierarchy = NULL;
   *output_vars = list_create();
@@ -214,16 +218,18 @@ bool func_handle_func_call(const char* var_name,
       }
     } else if (strcmp(func_call, "create_object") != 0 && strcmp(func_call, "kfree_skb") != 0 &&
                strcmp(func_call, "__jhash_mix") != 0 && strcmp(func_call,"__jhash_final") != 0 &&
-               strcmp(func_call, "__kfree_skb") && strcmp(func_call, "__cache_free") &&
+               strcmp(func_call, "__kfree_skb") != 0 && strcmp(func_call, "__cache_free") != 0 &&
                strcmp(func_call,  "__list_add") != 0) {
       struct list* func_arg_names;
       struct list* func_ptr_args;
       const char* func_declaration;
       const char* func_src_file;
+      size_t func_start_line;
       char** func_declaration_arr;
       size_t func_declaration_arr_len;
       enum FuncDeclStatus func_decl_status =
-        func_get_func_decl(func_call, var_ref_arr[0], &func_declaration, &func_src_file);
+        func_get_func_decl(func_call, var_ref_arr[0], &func_declaration, &func_src_file,
+                           &func_start_line);
       if (func_decl_status == FUNC_DECL_FOUND) {
         if (strcmp(func_call, "__rdma_create_kernel_id") == 0) {
           int test = 1;
@@ -267,6 +273,10 @@ bool func_handle_func_call(const char* var_name,
                                                      &func_ptr_args,
                                                      &func_declaration_arr,
                                                      &func_declaration_arr_len);
+        if (func_declaration_arr != NULL) {
+          func_src_file = func_declaration_arr[0];
+          func_start_line = atoi(func_declaration_arr[2]);
+        }
       }
       
       if (func_arg_names->len == 0) {
@@ -284,10 +294,10 @@ bool func_handle_func_call(const char* var_name,
 
       // TODO: this could be more memory efficient if we only got them for visited args
       struct list* func_arg_refs = func_get_func_args_refs(func_call, func_arg_names,
-                                                           args_indices,
+                                                           args_indices, func_src_file,
+                                                           func_start_line,
                                                            (const char**) func_declaration_arr,
-                                                           func_declaration_arr_len,
-                                                           true);
+                                                           func_declaration_arr_len);
 
       hash_map func_ptrs_passed =
         handle_func_ptrs_passed((struct list*) curr_call_args->payload,
@@ -439,7 +449,8 @@ bool func_handle_func_call(const char* var_name,
 enum FuncDeclStatus func_get_func_decl(const char* func_name,
                                        const char* ref_src_file,
                                        const char** func_decl,
-                                       const char** func_src_file) {
+                                       const char** func_src_file,
+                                       size_t* func_start_line) {
   if (!map_contains(visited_func_decls, func_name)) {
     return FUNC_DECL_NOT_FOUND;
   }
@@ -460,6 +471,7 @@ enum FuncDeclStatus func_get_func_decl(const char* func_name,
                                     ref_src_file)) {
       *func_decl = entry->func_declaration;
       *func_src_file = entry->source_file;
+      *func_start_line = entry->line_number;
       return FUNC_DECL_FOUND;
     }
   }
@@ -500,10 +512,12 @@ static void insert_func_args_list(hash_map args_map, const char* func_name,
 struct list* func_get_curr_func_arg_names(const char* func_name, const char* ref_src_file) {
   const char* func_declaration;
   const char* func_src_file;
+  size_t func_start_line;
   char** func_declaration_arr;
   size_t func_declaration_arr_len;
   enum FuncDeclStatus func_decl_status =
-    func_get_func_decl(func_name, ref_src_file, &func_declaration, &func_src_file);
+    func_get_func_decl(func_name, ref_src_file, &func_declaration, &func_src_file,
+                       &func_start_line);
   if (func_decl_status == FUNC_DECL_FOUND) {
     struct list* args_declaration = get_func_args_list(visited_func_args_decl,
                                                        func_name, func_src_file);
@@ -519,6 +533,30 @@ struct list* func_get_curr_func_arg_names(const char* func_name, const char* ref
     return func_extract_func_arg_names(func_name, ref_src_file, NULL, &func_ptr_args,
                                        &func_declaration_arr,
                                        &func_declaration_arr_len);
+  }
+}
+
+ssize_t func_get_func_start_line(const char* func_name, const char* ref_src_file) {
+  const char* func_declaration;
+  const char* func_src_file;
+  size_t func_start_line;
+  enum FuncDeclStatus func_decl_status =
+    func_get_func_decl(func_name, ref_src_file, &func_declaration, &func_src_file,
+                       &func_start_line);
+  if (func_decl_status == FUNC_DECL_FOUND) {
+    return func_start_line;
+  } else {
+    struct list* func_ptr_args;
+    char** func_declaration_arr;
+    size_t func_declaration_arr_len;
+    func_extract_func_arg_names(func_name, ref_src_file, NULL, &func_ptr_args,
+                                &func_declaration_arr,
+                                &func_declaration_arr_len);
+    if (func_declaration_arr == NULL) {
+      return -1;
+    } else {
+      return atoi(func_declaration_arr[2]);
+    }
   }
 }
 
@@ -674,7 +712,7 @@ static struct list* get_func_args_declaration(const char* func_name,
                                               struct list* func_args,
                                               char*** func_declaration_arr,
                                               size_t* func_declaration_arr_len) {
-  if (strcmp(func_name, "nla_total_size") == 0) {
+  if (strcmp(func_name, ">") == 0) {
     int test = 1;
   }
   struct list* func_declarations_arr;
@@ -684,8 +722,9 @@ static struct list* get_func_args_declaration(const char* func_name,
                                                          &func_declarations_arr,
                                                          &func_declarations_arr_len);
   if (func_declarations->len == 0) {
-    func_insert_func_decl_entry(func_name, NULL, NULL);
-    database_write_visited_func_decls_entry(func_name, NULL, NULL);
+    printf("Function declaration not found: %s\n", func_name);
+    func_insert_func_decl_entry(func_name, NULL, NULL, 0);
+    database_write_visited_func_decls_entry(func_name, NULL, NULL, 0);
     list_free(func_declarations);
     list_free(func_declarations_arr);
     *func_declaration_arr = NULL;
@@ -722,8 +761,11 @@ static struct list* get_func_args_declaration(const char* func_name,
     if ((func_args == NULL || num_declaration_args == func_args->len) &&
         (strstr(func_declaration, "#define") != NULL ||
          check_has_arg_names(args_declaration))) {
-      func_insert_func_decl_entry(func_name, func_declaration, curr_declaration_arr[0]);
-      database_write_visited_func_decls_entry(func_name, func_declaration, curr_declaration_arr[0]);
+      size_t line_number = atoi(curr_declaration_arr[2]);
+        func_insert_func_decl_entry(func_name, func_declaration,
+                                    curr_declaration_arr[0], line_number);
+      database_write_visited_func_decls_entry(func_name, func_declaration,
+                                              curr_declaration_arr[0], line_number);
       if (num_declaration_args == 0) {
         list_free(args_declaration);
         args_declaration = NULL;
@@ -744,8 +786,9 @@ static struct list* get_func_args_declaration(const char* func_name,
   }
 
   if (curr_declaration == NULL) {
-    func_insert_func_decl_entry(func_name, NULL, ref_src_file);
-    database_write_visited_func_decls_entry(func_name, NULL, ref_src_file);
+    printf("No valid function declaration found: %s\n", func_name);
+    func_insert_func_decl_entry(func_name, NULL, ref_src_file, 0);
+    database_write_visited_func_decls_entry(func_name, NULL, ref_src_file, 0);
   } else {
     curr_decl_arr_node = curr_decl_arr_node->next;
     for (curr_declaration = curr_declaration->next; curr_declaration != NULL;
@@ -764,7 +807,8 @@ static struct list* get_func_args_declaration(const char* func_name,
 
 void func_insert_func_decl_entry(const char* func_name,
                                  const char* func_declaration,
-                                 const char* source_file) {
+                                 const char* source_file,
+                                 size_t line_number) {
   if (func_declaration == NULL && source_file == NULL) {
     map_insert(visited_func_decls, func_name, NULL);
     return;
@@ -782,6 +826,7 @@ void func_insert_func_decl_entry(const char* func_name,
     (struct func_decl_entry*) malloc(sizeof(struct func_decl_entry));
   entry->source_file = source_file;
   entry->func_declaration = func_declaration;
+  entry->line_number = line_number;
   list_append(func_decls_list, entry);
 }
 
@@ -793,7 +838,7 @@ static struct list* get_func_declarations(const char* func_name,
   sprintf(cmd, "cscope -d -L0 %s", func_name);
   struct list* func_refs = utils_get_cscope_output(cmd);
 
-  if (strcmp(func_name, "kmemdup") == 0) {
+  if (strcmp(func_name, "net_eq_idr") == 0) {
     int test = 1;
   }
 
@@ -818,7 +863,7 @@ static struct list* get_func_declarations(const char* func_name,
     utils_free_if_different(func_ref, full_func_ref);
     func_ref = full_func_ref;
 
-    if (strcmp(func_ref, "{ offsetof(struct bpf_iter__task_file, task), PTR_TO_BTF_ID_OR_NULL }, { offsetof(struct bpf_iter__task_file, file), PTR_TO_BTF_ID_OR_NULL }, }, .seq_info\t\t= &task_file_seq_info, };") == 0) {
+    if (strcmp(func_ref, "struct timespec64 ts = { sec, min_t(u32, nsec, NSEC_PER_SEC - 1) };") == 0) {
       int test = 1;
     }
 
@@ -933,9 +978,10 @@ struct list* func_get_func_args_name(const char* func_name,
 struct list* func_get_func_args_refs(const char* func_name,
                                      struct list* func_arg_names,
                                      struct list* var_args_indices,
+                                     const char* func_src_file,
+                                     ssize_t func_start_line,
                                      const char** statement_arr,
-                                     size_t statement_arr_len,
-                                     bool is_func_declaration) {
+                                     size_t statement_arr_len) {
   struct list* func_arg_refs = list_create();
   for (struct list_node* curr = var_args_indices->head; curr != NULL; curr = curr->next) {
     size_t curr_arg_index = (size_t) curr->payload;
@@ -946,11 +992,12 @@ struct list* func_get_func_args_refs(const char* func_name,
     if (arg_entry == NULL) {
       arg_entry = var_create_func_var_entry(func_name, arg_name);
       struct list* global_var_refs;
-      arg_refs = var_get_local_var_refs(arg_name, func_name,
-                                        (const char**) statement_arr,
-                                        statement_arr_len, is_func_declaration,
-                                        &global_var_refs);
+      arg_refs = var_get_local_var_refs(arg_name, func_name, func_src_file,
+                                        func_start_line, statement_arr,
+                                        statement_arr_len, &global_var_refs);
       if (arg_refs == NULL) {
+        printf("Argument not found: Function: %s, Argument: %s\n", func_name,
+               arg_name);
         list_append(func_arg_refs, list_create());
       }
       arg_entry->var_refs = arg_refs;
@@ -1037,8 +1084,9 @@ static char* get_ptr_from_func_return(const char* func_call, const char** var_re
     struct list* arg_refs;
     if (entry == NULL) {
       struct list* global_var_refs;
-      arg_refs = var_get_local_var_refs(arg_arg, out_func_name, var_ref_arr,
-                                        var_ref_arr_len, false, &global_var_refs);
+      arg_refs = var_get_local_var_refs(arg_arg, out_func_name, var_ref_arr[0],
+                                        -1, var_ref_arr, var_ref_arr_len,
+                                        &global_var_refs);
       list_free_nodes(global_var_refs);
       entry = var_create_func_var_entry(out_func_name, arg_arg);
       entry->var_refs = arg_refs;

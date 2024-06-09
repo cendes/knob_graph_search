@@ -1,14 +1,13 @@
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <assert.h>
 #include "c_keywords.h"
 #include "utils.h"
 #include "list.h"
 #include "check_expression.h"
+#include "token_get.h"
 #include "sanitize_expression.h"
-
-static size_t get_comment_indices(const char* curr_var_ref, const char* comment_type,
-                                  size_t** comment_indices);
 
 static char* remove_comment_after(const char* curr_var_ref, ssize_t comment_index);
 
@@ -55,116 +54,87 @@ char* sanitize_peel_parenthesis(const char* var_ref) {
   return (char*) var_ref;
 }
 
-char* sanitize_remove_comments_and_strip(char* var_ref, bool* has_open_comment) {
-  size_t* comment_indices;
+char* sanitize_remove_comments_and_strip(char* var_ref, bool* has_open_comment,
+                                         bool* has_open_str) {
   char* curr_var_ref = var_ref;
   if (*has_open_comment) {
-    size_t num_comments = get_comment_indices(var_ref, "*/", &comment_indices);
+    size_t* comment_indices;
+    size_t num_comments = utils_get_str_occurences(var_ref, "*/", &comment_indices);
     if (num_comments > 0) {
       curr_var_ref = remove_comment_before(var_ref, comment_indices[0]);
       *has_open_comment = false;
       free(comment_indices);
     } else {
+      free(comment_indices);
       var_ref[0] = '\0';
       return var_ref;
     }
   } else {
-    size_t num_comments = get_comment_indices(var_ref, "//", &comment_indices);
-    if (num_comments > 0) {
-      curr_var_ref = remove_comment_after(var_ref, comment_indices[0]);
+    if (strcmp(var_ref, "\t/* http://bugzilla.kernel.org/show_bug.cgi?id=14183 */\n") == 0) {
+      int test = 1;
     }
-    free(comment_indices);
+    size_t* double_slash_indices;
+    size_t num_double_slashes =
+      token_get_actual_indices(var_ref, "//", *has_open_str, &double_slash_indices);
+    size_t curr_double_slash = 0;
+
+    size_t* slash_star_indices;
+    size_t num_slash_star =
+      token_get_actual_indices(var_ref, "/*", *has_open_str, &slash_star_indices);
     
-    num_comments = get_comment_indices(curr_var_ref, "/*", &comment_indices);
     struct list* comment_ranges = list_create();
     size_t curr_close_idx = 0;
-    for (size_t i = 0; i < num_comments; i++) {
-      if (comment_indices[i] < curr_close_idx) {
+    for (size_t i = 0; i < num_slash_star; i++) {
+      if (slash_star_indices[i] < curr_close_idx) {
         continue;
+      } else if (curr_double_slash < num_double_slashes &&
+                 slash_star_indices[i] > double_slash_indices[curr_double_slash]) {
+        break;
       }
-      curr_close_idx = comment_indices[i] + 3;
-      while (curr_close_idx < strlen(curr_var_ref) &&
-             curr_var_ref[curr_close_idx - 1] != '*' &&
-             curr_var_ref[curr_close_idx] != '/') {
+      
+      curr_close_idx = slash_star_indices[i] + 3;
+      while (curr_close_idx < strlen(var_ref) &&
+             (var_ref[curr_close_idx - 1] != '*' || var_ref[curr_close_idx] != '/')) {
         curr_close_idx++;
       }
       curr_close_idx++;
-      if (curr_close_idx > strlen(curr_var_ref)) {
-        curr_close_idx = strlen(curr_var_ref);
+      if (curr_close_idx > strlen(var_ref)) {
+        curr_close_idx = strlen(var_ref);
+        curr_double_slash = num_double_slashes;
         *has_open_comment = true;
+      } else {
+        for (; curr_double_slash < num_double_slashes; curr_double_slash++) {
+          if (double_slash_indices[curr_double_slash] > curr_close_idx) {
+            break;
+          }
+        }
       }
+      
       struct index_range* comment_range =
         (struct index_range*) malloc(sizeof(struct index_range));
-      *comment_range = {comment_indices[i], curr_close_idx};
+      *comment_range = {slash_star_indices[i], curr_close_idx};
+      list_append(comment_ranges, comment_range);
+    }
+
+    if (curr_double_slash < num_double_slashes) {
+      struct index_range* comment_range =
+        (struct index_range*) malloc(sizeof(struct index_range));
+      *comment_range = {double_slash_indices[curr_double_slash], strlen(var_ref)};
       list_append(comment_ranges, comment_range);
     }
     
-    free(comment_indices);
-    char* new_var_ref = sanitize_remove_substring(curr_var_ref, comment_ranges);
+    free(double_slash_indices);
+    free(slash_star_indices);
+    curr_var_ref = sanitize_remove_substring(var_ref, comment_ranges);
     list_free(comment_ranges);
-    utils_free_if_both_different(curr_var_ref, new_var_ref, var_ref);
-    curr_var_ref = new_var_ref;
   }
-  
-  /* char* curr_var_ref = (char*) var_ref; */
-  /* char* new_var_ref = NULL; */
-  /* ssize_t comment_index = get_comment_index(curr_var_ref, "//"); */
-  /* if (comment_index >= 0) { */
-  /*   new_var_ref = remove_comment(curr_var_ref, comment_index); */
-  /*   curr_var_ref = new_var_ref; */
-  /* } */
 
-  
-  /* comment_index = get_comment_index(curr_var_ref, "/\*"); */
-  /* if (comment_index >= 0) { */
-  /*   if (new_var_ref == NULL) { */
-  /*     curr_var_ref = remove_comment(curr_var_ref, comment_index); */
-  /*   } else { */
-  /*     curr_var_ref[comment_index] = '\0'; */
-  /*   } */
-  /* } */
+  char* sanitized_var_ref = sanitize_remove_string_literals(curr_var_ref, has_open_str);
+  utils_free_if_both_different(curr_var_ref, sanitized_var_ref, var_ref);
 
-  char* trimmed_var_ref = utils_trim_str(curr_var_ref);
-  utils_free_if_both_different(curr_var_ref, trimmed_var_ref, var_ref);
+  char* trimmed_var_ref = utils_trim_str(sanitized_var_ref);
+  utils_free_if_both_different(sanitized_var_ref, trimmed_var_ref, var_ref);
   return trimmed_var_ref;
-}
-
-static size_t get_comment_indices(const char* curr_var_ref, const char* comment_type,
-                                  size_t** comment_indices) {
-  if (strcmp(curr_var_ref,"\t\t/* \"typedef void new_void\", \"const void\"...etc */\n") == 0) {
-    int test = 1;
-  }
-  size_t* all_comment_indices;
-  size_t total_num_comments = utils_get_str_occurences(curr_var_ref, comment_type, &all_comment_indices);
-  struct list* string_ranges = check_get_string_ranges(curr_var_ref);
-  if (string_ranges->len == 0) {
-    list_free(string_ranges);
-    *comment_indices = all_comment_indices;
-    return total_num_comments;
-  }
-
-  *comment_indices = (size_t*) malloc(sizeof(size_t) * total_num_comments);
-  size_t num_comments = 0;
-  for (size_t i = 0; i < total_num_comments; i++) {
-    bool is_comment = true;
-    for (struct list_node* curr = string_ranges->head; curr != NULL;
-         curr = curr->next) {
-      struct index_range* curr_range = (struct index_range*) curr->payload;
-      if (all_comment_indices[i] >= curr_range->start &&
-          all_comment_indices[i] <= curr_range->end) {
-        is_comment = false;
-        break;
-      }
-    }
-    if (is_comment) {
-      (*comment_indices)[num_comments] = all_comment_indices[i];
-      num_comments++;
-    }
-  }
-
-  free(all_comment_indices);
-  list_free(string_ranges);
-  return num_comments;
 }
 
 static char* remove_comment_after(const char* curr_var_ref, ssize_t comment_index) {
@@ -204,8 +174,8 @@ char* sanitize_remove_sizeof(const char* var_ref) {
   return new_var_ref;
 }
 
-char* sanitize_remove_string_literals(const char* var_ref) {
-  struct list* string_ranges = check_get_string_ranges(var_ref);
+char* sanitize_remove_string_literals(const char* var_ref, bool* has_open_str) {
+  struct list* string_ranges = check_get_string_ranges(var_ref, has_open_str);
   char* new_var_ref = sanitize_remove_substring(var_ref, string_ranges);
   list_free(string_ranges);
   return new_var_ref;
@@ -364,12 +334,15 @@ char* sanitize_remove_substring(const char* var_ref, struct list* substring_indi
 }
 
 char* sanitize_clean_var_ref(const char* var_ref) {
-  char* var_ref_no_str = sanitize_remove_string_literals(var_ref);
+  bool has_open_str = false;
+  char* var_ref_no_str = sanitize_remove_string_literals(var_ref, &has_open_str);
+  assert(!has_open_str &&
+         "sanitize_clean_var_ref: complete expression has open string");
   char* var_ref_no_sizeof = sanitize_remove_sizeof(var_ref_no_str);
   utils_free_if_both_different(var_ref_no_str, var_ref, var_ref_no_sizeof);
-  char* var_ref_no_casts = sanitize_remove_casts(var_ref_no_sizeof);
-  utils_free_if_both_different(var_ref_no_sizeof, var_ref, var_ref_no_casts);
-  char* trimmed_var_ref = utils_trim_str(var_ref_no_casts);
-  utils_free_if_both_different(var_ref_no_casts, var_ref, trimmed_var_ref);
+  //char* var_ref_no_casts = sanitize_remove_casts(var_ref_no_sizeof);
+  //utils_free_if_both_different(var_ref_no_sizeof, var_ref, var_ref_no_casts);
+  char* trimmed_var_ref = utils_trim_str(var_ref_no_sizeof);
+  utils_free_if_both_different(var_ref_no_sizeof, var_ref, trimmed_var_ref);
   return trimmed_var_ref;
 }

@@ -20,6 +20,8 @@ void func_load_visited_func_decls(const char* filename);
 struct list* func_get_curr_func_arg_names(const char* func_name,
                                           const char* ref_src_file);
 
+ssize_t func_get_func_start_line(const char* func_name, const char* ref_src_file);
+
 bool func_handle_func_call(const char* var_name,
                            struct list* struct_hierarchy,
                            const char* var_ref, const char** var_ref_arr,
@@ -50,11 +52,13 @@ struct list* func_extract_func_arg_names(const char* func_name,
 enum FuncDeclStatus func_get_func_decl(const char* func_name,
                                        const char* ref_src_file,
                                        const char** func_decl,
-                                       const char** func_src_file);
+                                       const char** func_src_file,
+                                       size_t* func_start_line);
 
 void func_insert_func_decl_entry(const char* func_name,
                                  const char* func_declaration,
-                                 const char* source_file);
+                                 const char* source_file,
+                                 size_t line_number);
 
 struct list* func_get_func_args_name(const char* func_name,
                                      struct list* args_declaration,
@@ -64,9 +68,10 @@ struct list* func_get_func_args_name(const char* func_name,
 struct list* func_get_func_args_refs(const char* func_name,
                                      struct list* func_arg_names,
                                      struct list* var_args_indices,
+                                     const char* func_src_file,
+                                     ssize_t func_start_line,
                                      const char** statement_arr,
-                                     size_t statement_arr_len,
-                                     bool is_func_declaration);
+                                     size_t statement_arr_len);
 
 void func_free_out_arg(void* void_out_arg);
 

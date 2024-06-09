@@ -139,8 +139,9 @@ struct list* utils_get_cscope_output(const char* cmd) {
   do {
     bytes_read = getline(&line_buf, &len, f);
     if (bytes_read > 0) {
-      char* ref = (char*) malloc(bytes_read + 1);
-      strncpy(ref, line_buf, bytes_read + 1);
+      char* ref = (char*) malloc(bytes_read);
+      strncpy(ref, line_buf, bytes_read);
+      ref[bytes_read - 1] = '\0';
       list_append(var_refs, ref);
     } else if (bytes_read == -1 && !feof(f)) {
       perror("Failed to read cscope output: ");

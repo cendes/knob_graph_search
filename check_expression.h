@@ -11,7 +11,7 @@ struct index_range {
 
 extern hash_map check_out_of_scope;
 
-bool check_is_expression(const char* var_ref, const char** var_ref_arr);
+bool check_is_expression_with_effect(const char* var_ref, const char** var_ref_arr);
 
 bool check_is_control_flow_expr(const char* var_ref);
 
@@ -49,7 +49,7 @@ bool check_is_static(const char* var_ref);
 
 bool check_is_token_match(const char* var_ref, size_t index, size_t token_len);
 
-struct list* check_get_string_ranges(const char* var_ref);
+struct list* check_get_string_ranges(const char* var_ref, bool* has_open_str);
 
 bool check_is_arg_assignment(const char* var_name, struct list* func_args_name);
 

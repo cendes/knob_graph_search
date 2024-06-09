@@ -3,6 +3,7 @@
 #include <string.h>
 #include "list.h"
 #include "hash_map.h"
+#include "token_get.h"
 #include "var_search.h"
 #include "func_call_parse.h"
 #include "database.h"
@@ -10,6 +11,8 @@
 static FILE* func_vars_visited_file;
 
 static FILE* visited_func_decls_file;
+
+static FILE* macros_return_range_file;
 
 static char* read_database_string(FILE* file);
 
@@ -69,9 +72,32 @@ void database_read_visited_func_decls(const char* filename) {
     if (func != NULL) {
       char* func_declaration = read_database_string(visited_func_decls_file);
       char* source_file = read_database_string(visited_func_decls_file);
-      func_insert_func_decl_entry(func, func_declaration, source_file);
+      size_t line_number;
+      fread(&line_number, sizeof(size_t), 1, visited_func_decls_file);
+      func_insert_func_decl_entry(func, func_declaration, source_file, line_number);
     }
   } while(func != NULL);
+}
+
+void database_read_macros_return_range(const char* filename) {
+  macros_return_range_file = fopen(filename, "a+");
+  if (visited_func_decls_file == NULL) {
+    perror("Could not open database: ");
+    return;
+  }
+
+  char* macro;
+  do {
+    macro = read_database_string(macros_return_range_file);
+    if (macro != NULL) {
+      char* source_file = read_database_string(macros_return_range_file);
+      size_t return_start;
+      fread(&return_start, sizeof(size_t), 1, macros_return_range_file);
+      size_t return_end;
+      fread(&return_end, sizeof(size_t), 1, macros_return_range_file);
+      token_insert_macro_return_entry(macro, source_file, return_start, return_end);
+    }
+  } while (macro != NULL);
 }
 
 static char* read_database_string(FILE* file) {
@@ -115,12 +141,27 @@ void database_write_func_vars_visited_entry(const char* func, const char* var,
 
 void database_write_visited_func_decls_entry(const char* func,
                                              const char* func_declaration,
-                                             const char* source_file) {
+                                             const char* source_file,
+                                             size_t line_number) {
   write_database_string(func, visited_func_decls_file);
   write_database_string(func_declaration, visited_func_decls_file);
   write_database_string(source_file, visited_func_decls_file);
+  fwrite(&line_number, sizeof(size_t), 1, visited_func_decls_file);
 
   int ret = fflush(visited_func_decls_file);
+  if (ret != 0) {
+    perror("Database write failed: ");
+  }
+}
+
+void database_write_macros_return_range(const char* macro, const char* source_file,
+                                         size_t return_start, size_t return_end) {
+  write_database_string(macro, macros_return_range_file);
+  write_database_string(source_file, macros_return_range_file);
+  fwrite(&return_start, sizeof(size_t), 1, macros_return_range_file);
+  fwrite(&return_end, sizeof(size_t), 1, macros_return_range_file);
+
+  int ret = fflush(macros_return_range_file);
   if (ret != 0) {
     perror("Database write failed: ");
   }

@@ -25,8 +25,10 @@ bool var_get_func_refs(const char* var_name, struct list* struct_hierarchy,
                        struct list** output_vars, hash_map* func_ret_map);
 
 struct list* var_get_local_var_refs(const char* var_name, const char* func_name,
-                                    const char** statement_arr, int statement_arr_len,
-                                    bool is_func_declaration,
+                                    const char* func_src_file,
+                                    ssize_t func_start_line,
+                                    const char** statement_arr,
+                                    size_t statement_arr_len, 
                                     struct list** global_var_refs);
 
 //void var_func_extend_unique(struct list *funcs, struct list* additional_funcs);

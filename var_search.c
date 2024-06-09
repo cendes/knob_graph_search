@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <ctype.h>
+#include <assert.h>
 #include "utils.h"
 #include "list.h"
 #include "hash_map.h"
@@ -23,7 +24,7 @@
 //TODO: handle weird dereference cases (pointer arithmetic and struct)
 //TODO: properly handle function pointers
 //TODO: Eliminate references to array index
-//TODO: handle assignments to array or struct literals
+//TODO: handle assignments to array or struct litxerals
 //TODO: Properly handle removing casts
 //TODO: Properly handle ternary operators in assigments and arguments (generate new expressions)
 //TODO: handle function pointers in func variables visited cache
@@ -51,8 +52,8 @@ static struct list* get_local_var_refs_from_src(struct list* var_refs,
                                                 const char* var_name,
                                                 const char* func_name,
                                                 const char* src_file,
-                                                int func_start_line,
-                                                int func_end_line);
+                                                size_t func_start_line,
+                                                size_t func_end_line);
 
 static bool get_local_ref(const char* var_name, const char* var_ref,
                           const char** var_ref_arr, const char* func_name,
@@ -94,6 +95,7 @@ int main(int argc, char* argv[]) {
   printf("Reading database...\n");
   func_vars_visited = database_read_func_vars_visited("func_vars_visited");
   func_load_visited_func_decls("visited_func_decls");
+  database_read_macros_return_range("macros_return_ranges");
   
   check_out_of_scope = map_create();
   char cwd[4096];
@@ -293,13 +295,13 @@ bool var_get_func_refs(const char* var_name, struct list* struct_hierarchy,
     }
 
     if (full_var_refs == NULL) {
-      char* san_var_ref = sanitize_remove_casts(var_ref);
+      //char* san_var_ref = sanitize_remove_casts(var_ref);
       //utils_free_if_different(var_ref, san_var_ref);
-      char* full_var_ref = file_get_multiline_expr(san_var_ref, var_ref_arr);
+      char* full_var_ref = file_get_multiline_expr(var_ref, var_ref_arr);
       if (strstr(full_var_ref, "list_for_each_safe (item, tmp, list) kfree (list_entry (item, struct frag, list));") != NULL) {
         int test = 1;
       }
-      utils_free_if_both_different(san_var_ref, full_var_ref, var_ref);
+      //utils_free_if_both_different(san_var_ref, full_var_ref, var_ref);
       list_append(new_full_var_refs, full_var_ref);
       //char* original_var_ref = var_ref;
       var_ref = full_var_ref;
@@ -316,7 +318,7 @@ bool var_get_func_refs(const char* var_name, struct list* struct_hierarchy,
       int test = 1;
     }
 
-    if (strstr(var_ref,"err = devlink_reload(devlink, &init_net, DEVLINK_RELOAD_ACTION_DRIVER_REINIT, DEVLINK_RELOAD_LIMIT_UNSPEC, &actions_performed, NULL);") != NULL) {
+    if (strstr(var_ref, "asmlinkage void __camellia_enc_blk_2way(const void *ctx, u8 *dst, const u8 *src, bool xor);") != NULL) {
       int test = 1;
     }
     
@@ -394,10 +396,12 @@ bool var_get_func_refs(const char* var_name, struct list* struct_hierarchy,
 }
 
 struct list* var_get_local_var_refs(const char* var_name, const char* func_name,
-                                    const char** statement_arr, int statement_arr_len,
-                                    bool is_func_declaration,
+                                    const char* func_src_file,
+                                    ssize_t func_start_line,
+                                    const char** statement_arr,
+                                    size_t statement_arr_len, 
                                     struct list** global_var_refs) {
-  if (strcmp(var_name, "__u") == 0 && strcmp(func_name, "READ_ONCE") == 0) {
+  if (strcmp(var_name, "net") == 0 && strcmp(func_name,"fib_select_path") == 0) {
     int test = 1;
   }
   const char* original_var_name = var_name;
@@ -424,7 +428,7 @@ struct list* var_get_local_var_refs(const char* var_name, const char* func_name,
       list_append(non_local_refs, var_ref);
     }
 
-    if (strcmp(var_ref_arr[0], statement_arr[0]) == 0) {
+    if (strcmp(var_ref_arr[0], func_src_file) == 0) {
       list_append(src_file_refs, var_ref);
     } else {
       list_append(non_src_refs, var_ref);
@@ -447,14 +451,19 @@ struct list* var_get_local_var_refs(const char* var_name, const char* func_name,
     list_free_nodes(non_local_refs);
     //list_free(non_src_refs);
 
-    ssize_t func_start_line;
-    ssize_t func_end_line = 0;
-    if (is_func_declaration) {
-      func_start_line = atoi(statement_arr[2]);
-      func_end_line = file_get_func_end_line(statement_arr[0], func_start_line);
-    } else {
-      func_end_line = file_get_func_from_src(statement_arr[0], func_name, &func_start_line);
+    //ssize_t func_start_line;
+    //ssize_t func_end_line = 0;
+    //if (is_func_declaration) {
+    //  func_start_line = atoi(statement_arr[2]);
+    if (func_start_line < 0) {
+      func_start_line = func_get_func_start_line(func_name, func_src_file);
+      assert(func_start_line >= 0 &&
+             "Failed to get function start line: func declaration not found");
     }
+    ssize_t func_end_line = file_get_func_end_line(func_src_file, func_start_line);
+    //} else {
+    //  func_end_line = file_get_func_from_src(func_src_file, func_name, &func_start_line);
+    //}
 
     if (func_end_line < 0) {
       list_free_nodes(src_file_refs);
@@ -464,7 +473,7 @@ struct list* var_get_local_var_refs(const char* var_name, const char* func_name,
       return NULL;
     } else {
       local_var_refs = get_local_var_refs_from_src(src_file_refs, var_name, func_name,
-                                                   statement_arr[0], func_start_line,
+                                                   func_src_file, func_start_line,
                                                    func_end_line);
       list_free_nodes(src_file_refs);
       utils_free_if_different((char*) var_name, original_var_name);
@@ -490,7 +499,7 @@ struct list* var_get_local_var_refs(const char* var_name, const char* func_name,
 
 static struct list* get_local_var_refs_from_src(struct list* var_refs, const char* var_name,
                                                 const char* func_name, const char* src_file,
-                                                int func_start_line, int func_end_line) {
+                                                size_t func_start_line, size_t func_end_line) {
   struct list* local_var_refs = list_create();
   struct list* non_local_refs = list_create();
   bool is_local_var = false;
@@ -529,10 +538,10 @@ static bool get_local_ref(const char* var_name, const char* var_ref, const char*
   const char* full_var_ref = file_get_multiline_expr(var_ref, var_ref_arr); // TODO: optimize this
   if (!is_local_var) {
     is_local_var = check_is_var_declaration(var_name, full_var_ref);
-    if (is_local_var) {
-      list_append(non_local_refs, var_ref);
-      return true;
-    }
+    //if (is_local_var) {
+    //  list_append(non_local_refs, var_ref);
+    //  return true;
+    //}
   }
 
   if (check_is_ref(full_var_ref, var_name, func_name, false)) {
@@ -559,7 +568,9 @@ static void handle_entry_point_return(hash_map func_ret_map) {
 
     const char* ret_func_decl;
     const char* func_src_tmp;
-    func_get_func_decl(ret_func, func_src, &ret_func_decl, &func_src_tmp);
+    size_t func_start_line_tmp;
+    func_get_func_decl(ret_func, func_src, &ret_func_decl, &func_src_tmp,
+                       &func_start_line_tmp);
     
     // printf("Function return: %s\n", ret_func);
     struct func_ret_entry* entry =
@@ -596,9 +607,9 @@ static void handle_entry_point_return(hash_map func_ret_map) {
       const char* caller_func = func_ref_arr[1];
 
       if (full_func_refs == NULL) {
-        char* san_func_ref = sanitize_remove_casts(func_ref);
-        char* full_func_ref = file_get_multiline_expr(san_func_ref, func_ref_arr);
-        utils_free_if_both_different(san_func_ref, full_func_ref, func_ref);
+        //char* san_func_ref = sanitize_remove_casts(func_ref);
+        char* full_func_ref = file_get_multiline_expr(func_ref, func_ref_arr);
+        //utils_free_if_both_different(san_func_ref, full_func_ref, func_ref);
         list_append(new_full_func_refs, full_func_ref);
         func_ref = full_func_ref;
       } else {
