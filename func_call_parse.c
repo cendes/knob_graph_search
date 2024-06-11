@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 #include "list.h"
 #include "hash_map.h"
 #include "utils.h"
@@ -33,6 +34,7 @@ static void append_arg(struct list* args_list, struct list* args_range,
 static struct list* get_func_args_declaration(const char* func_name,
                                               const char* ref_src_file,
                                               struct list* func_args,
+                                              bool* is_define,
                                               char*** func_declaration_arr,
                                               size_t* func_declaration_arr_len);
 
@@ -47,6 +49,7 @@ static bool handle_memcpy(const char* var_name, const char** var_ref_arr,
                           struct list* struct_hierarchy,
                           struct list_node* src_struct_match,
                           hash_map func_ptrs,
+                          bool record_match,
                           char** assigned_root_name,
                           struct list** assigned_hierarchy,
                           struct list** return_hierarchy,
@@ -77,6 +80,7 @@ static bool handle_output_args(const char* func_name,
                                const char** var_ref_arr,
                                size_t var_ref_arr_len,
                                hash_map func_ptrs,
+                               bool record_match,
                                struct list** additional_output_args,
                                struct list** return_hierarchy);
 
@@ -139,15 +143,17 @@ bool func_handle_func_call(const char* var_name,
                            struct list* struct_hierarchy,
                            const char* var_ref, const char** var_ref_arr,
                            size_t var_ref_arr_len, const char* func_name,
-                           hash_map func_ptrs,
+                           hash_map func_ptrs, bool record_match,
                            struct list** return_struct_hierarchy,
-                           struct list** output_vars) {
-  if (strcmp(var_ref, "net/core/neighbour.c ___neigh_create 629 if (atomic_read(&tbl->entries) > (1 << nht->hash_shift))") == 0) {
+                           struct list** output_vars,
+                           struct list** call_return_hierarchy) {
+  if (strcmp(var_ref, "device_initialize(dev);") == 0) {
     int test = 1;
   }
   bool has_match = false;
   *return_struct_hierarchy = NULL;
   *output_vars = list_create();
+  *call_return_hierarchy = NULL;
   struct list* calling_func_args = func_get_curr_func_arg_names(func_name,
                                                                 var_ref_arr[0]);
 
@@ -204,6 +210,7 @@ bool func_handle_func_call(const char* var_name,
                                    (struct list*) curr_call_args->payload,
                                    struct_hierarchy, src_struct_match,
                                    func_ptrs,
+                                   record_match,
                                    &assigned_root_name,
                                    &assigned_hierarchy,
                                    &curr_func_return_hierarchy,
@@ -215,25 +222,29 @@ bool func_handle_func_call(const char* var_name,
           assignment_append_out_arg(additional_output_args, assigned_root_name, assigned_hierarchy);
         }
         var_out_arg_extend_unique(*output_vars, additional_output_args);
+        list_free_nodes(additional_output_args);
       }
     } else if (strcmp(func_call, "create_object") != 0 && strcmp(func_call, "kfree_skb") != 0 &&
                strcmp(func_call, "__jhash_mix") != 0 && strcmp(func_call,"__jhash_final") != 0 &&
                strcmp(func_call, "__kfree_skb") != 0 && strcmp(func_call, "__cache_free") != 0 &&
-               strcmp(func_call,  "__list_add") != 0) {
+               strcmp(func_call,  "__list_add") != 0 && strcmp(func_call, "__dev_xmit_skb") != 0 &&
+               strcmp(func_call, "validate_xmit_skb") != 0) {
       struct list* func_arg_names;
       struct list* func_ptr_args;
       const char* func_declaration;
       const char* func_src_file;
       size_t func_start_line;
+      bool is_define;
       char** func_declaration_arr;
       size_t func_declaration_arr_len;
       enum FuncDeclStatus func_decl_status =
         func_get_func_decl(func_call, var_ref_arr[0], &func_declaration, &func_src_file,
                            &func_start_line);
       if (func_decl_status == FUNC_DECL_FOUND) {
-        if (strcmp(func_call, "__rdma_create_kernel_id") == 0) {
+        if (strcmp(func_call, "within_module") == 0) {
           int test = 1;
         }
+        is_define = check_is_define(func_declaration);
         
         struct list* func_args_decl = get_func_args_list(visited_func_args_decl,
                                                           func_call, func_src_file);
@@ -250,8 +261,7 @@ bool func_handle_func_call(const char* var_name,
         
         func_declaration_arr_len = utils_split_str(func_declaration, &func_declaration_arr);
         func_arg_names = func_get_func_args_name(func_call, func_args_decl,
-                                                 (const char**) func_declaration_arr,
-                                                 func_declaration_arr_len);
+                                                 check_is_define(func_declaration));
         func_ptr_args = get_func_args_list(visited_func_ptr_args, func_call,
                                            func_src_file);
         if (func_ptr_args == NULL) {
@@ -271,6 +281,7 @@ bool func_handle_func_call(const char* var_name,
                                                      var_ref_arr[0],
                                                      (struct list*) curr_call_args->payload,
                                                      &func_ptr_args,
+                                                     &is_define,
                                                      &func_declaration_arr,
                                                      &func_declaration_arr_len);
         if (func_declaration_arr != NULL) {
@@ -295,9 +306,7 @@ bool func_handle_func_call(const char* var_name,
       // TODO: this could be more memory efficient if we only got them for visited args
       struct list* func_arg_refs = func_get_func_args_refs(func_call, func_arg_names,
                                                            args_indices, func_src_file,
-                                                           func_start_line,
-                                                           (const char**) func_declaration_arr,
-                                                           func_declaration_arr_len);
+                                                           func_start_line, is_define);
 
       hash_map func_ptrs_passed =
         handle_func_ptrs_passed((struct list*) curr_call_args->payload,
@@ -315,7 +324,7 @@ bool func_handle_func_call(const char* var_name,
         struct list_node* arg_struct_match =
           (struct list_node*) curr_arg_struct_match->payload;
         struct list* arg_struct_hierarchy = list_copy(struct_hierarchy, arg_struct_match);
-        struct list* return_var_hierarchy;
+        struct list* curr_call_return_hierarchy;
         struct list* output_args;
         char* func_var_code = (char*) malloc(256);
         sprintf(func_var_code, "%s,%s", func_call, curr_arg_name);
@@ -327,6 +336,9 @@ bool func_handle_func_call(const char* var_name,
         }
         
         if (!caller_entry->locked) {
+          if (strcmp(var_ref, "mm/highmem.c page_address 733 pas = page_slot(page);") == 0) {
+            int test = 1;
+          }
           caller_entry->locked = true;
           //var_insert_func_var_visited(func_name, func_var_code,
           //                           arg_struct_hierarchy, NULL, NULL);
@@ -334,7 +346,8 @@ bool func_handle_func_call(const char* var_name,
                                                arg_struct_hierarchy,
                                                curr_arg_refs, func_call,
                                                func_ptrs_passed,
-                                               &return_var_hierarchy,
+                                               record_match,
+                                               &curr_call_return_hierarchy,
                                                &output_args,
                                                NULL);
           caller_entry->locked = false;
@@ -362,23 +375,32 @@ bool func_handle_func_call(const char* var_name,
                                           var_ref_arr,
                                           var_ref_arr_len,
                                           func_ptrs,
+                                          record_match,
                                           &additional_output_args,
-                                          &return_var_hierarchy);
+                                          &curr_func_return_hierarchy);
           var_out_arg_extend_unique(*output_vars, additional_output_args);
+          list_free_nodes(additional_output_args);
 
-          if (return_var_hierarchy != NULL) {
+          if (curr_call_return_hierarchy != NULL) {
             //struct list* additional_output_args;
+            struct list* assignment_return_hierarchy;
             has_match |= assignment_handle_var_assignment(func_name,
                                                           var_ref,
                                                           var_ref_arr,
                                                           var_ref_arr_len,
                                                           var_name,
-                                                          return_var_hierarchy,
-                                                          true, func_ptrs,
-                                                          &curr_func_return_hierarchy,
+                                                          curr_call_return_hierarchy,
+                                                          true, func_ptrs, record_match,
+                                                          &assignment_return_hierarchy,
                                                           &additional_output_args);
             //var_func_extend_unique(funcs, additional_funcs);
             var_out_arg_extend_unique(*output_vars, additional_output_args);
+            list_free_nodes(additional_output_args);
+            if (curr_func_return_hierarchy == NULL ||
+                (assignment_return_hierarchy != NULL &&
+                 assignment_return_hierarchy->len > curr_func_return_hierarchy->len)) {
+              curr_func_return_hierarchy = assignment_return_hierarchy;
+            }
             
             size_t arg_idx;
             ssize_t func_idx = get_func_arg_index(curr_args_range->next,
@@ -388,21 +410,30 @@ bool func_handle_func_call(const char* var_name,
               struct list* super_func_args =
                 (struct list*) list_get(var_args_indices, func_idx);
               list_append(super_func_args, (void*) arg_idx);
-              struct list_node* curr_segment = struct_hierarchy->head;
-              struct list_node* prev_segment = NULL;
-              struct list_node* return_segment = return_var_hierarchy->head;
-              while (curr_segment != NULL && return_segment != NULL &&
-                     strcmp((char*) curr_segment->payload,
-                            (char*) return_segment->payload) == 0) {
-                curr_segment = curr_segment->next;
-                prev_segment = curr_segment;
-                return_segment = return_segment->next;
+              //struct list_node* curr_segment = struct_hierarchy->head;
+              //struct list_node* prev_segment = NULL;
+              //struct list_node* return_segment = curr_call_return_hierarchy->head;
+              //while (curr_segment != NULL && return_segment != NULL &&
+              //       strcmp((char*) curr_segment->payload,
+              //              (char*) return_segment->payload) == 0) {
+              //  curr_segment = curr_segment->next;
+              //  prev_segment = curr_segment;
+              //  return_segment = return_segment->next;
+              //}
+              struct list_node* struct_match;
+              if (struct_hierarchy->len == curr_call_return_hierarchy->len) {
+                struct_match = NULL;
+              } else {
+                struct_match =
+                  list_get_node(struct_hierarchy,
+                           struct_hierarchy->len - curr_call_return_hierarchy->len - 1);
               }
               struct list* arg_struct_matches =
                 (struct list*) list_get(struct_matches, func_idx);
-              list_append(arg_struct_matches, prev_segment);
-            } else {
-              *return_struct_hierarchy = return_var_hierarchy;
+              list_append(arg_struct_matches, struct_match);
+            } else if (*call_return_hierarchy == NULL ||
+                       curr_call_return_hierarchy->len > (*call_return_hierarchy)->len) {
+              *call_return_hierarchy = curr_call_return_hierarchy;
             }
           }
         }
@@ -423,11 +454,18 @@ bool func_handle_func_call(const char* var_name,
       list_free_nodes(func_arg_names); // TODO: why can't I list_free this???
       //list_free_nodes(func_ptr_args);
     }
-
-    if (curr_func_return_hierarchy != NULL) {
+    
+    if (*return_struct_hierarchy == NULL ||
+        (curr_func_return_hierarchy != NULL &&
+         curr_func_return_hierarchy->len > (*return_struct_hierarchy)->len)) {
+      if (*return_struct_hierarchy != NULL) {
+        int test = 1;
+      }
       *return_struct_hierarchy = curr_func_return_hierarchy;
     }    
 
+    list_free((struct list*) curr_call_args->payload);
+    //list_free((struct list*) curr_args_range->payload);
     curr_call_args = curr_call_args->next;
     curr_func_start = curr_func_start->next;
     curr_args_indices = curr_args_indices->next;
@@ -526,11 +564,12 @@ struct list* func_get_curr_func_arg_names(const char* func_name, const char* ref
     }
     func_declaration_arr_len = utils_split_str(func_declaration, &func_declaration_arr);
     return func_get_func_args_name(func_name, args_declaration,
-                                   (const char**) func_declaration_arr,
-                                   func_declaration_arr_len);
+                                   check_is_define(func_declaration));
   } else {
     struct list* func_ptr_args;
+    bool is_define;
     return func_extract_func_arg_names(func_name, ref_src_file, NULL, &func_ptr_args,
+                                       &is_define,
                                        &func_declaration_arr,
                                        &func_declaration_arr_len);
   }
@@ -549,7 +588,9 @@ ssize_t func_get_func_start_line(const char* func_name, const char* ref_src_file
     struct list* func_ptr_args;
     char** func_declaration_arr;
     size_t func_declaration_arr_len;
+    bool is_define;
     func_extract_func_arg_names(func_name, ref_src_file, NULL, &func_ptr_args,
+                                &is_define,
                                 &func_declaration_arr,
                                 &func_declaration_arr_len);
     if (func_declaration_arr == NULL) {
@@ -636,6 +677,8 @@ struct list* func_get_func_args(const char* var_ref,
     }
     curr_index++;
   }
+  assert(curr_index < strlen(var_ref) &&
+         "func_get_func_args: function call does not end with parenthesis");
   append_arg(args_list, *args_range, var_ref, expr_start, curr_index);
 
   return args_list;
@@ -666,10 +709,11 @@ struct list* func_extract_func_arg_names(const char* func_name,
                                          const char* ref_src_file,
                                          struct list* func_args,
                                          struct list** func_ptr_args,
+                                         bool* is_define,
                                          char*** func_declaration_arr,
                                          size_t* func_declaration_arr_len) {
   struct list* args_declaration = get_func_args_declaration(func_name, ref_src_file,
-                                                            func_args,
+                                                            func_args, is_define,
                                                             func_declaration_arr,
                                                             func_declaration_arr_len);
   if (args_declaration == NULL || func_declaration_arr == NULL) {
@@ -696,8 +740,7 @@ struct list* func_extract_func_arg_names(const char* func_name,
   }
 
   struct list* func_arg_names = func_get_func_args_name(func_name, args_declaration,
-                                                        (const char**) *func_declaration_arr,
-                                                        *func_declaration_arr_len);
+                                                        *is_define);
   
   if ((*func_ptr_args)->len > 0) {
     insert_func_args_list(visited_func_ptr_args, func_name,
@@ -710,9 +753,10 @@ struct list* func_extract_func_arg_names(const char* func_name,
 static struct list* get_func_args_declaration(const char* func_name,
                                               const char* ref_src_file,
                                               struct list* func_args,
+                                              bool* is_define,
                                               char*** func_declaration_arr,
                                               size_t* func_declaration_arr_len) {
-  if (strcmp(func_name, ">") == 0) {
+  if (strcmp(func_name, "le32_to_cpu") == 0) {
     int test = 1;
   }
   struct list* func_declarations_arr;
@@ -758,9 +802,14 @@ static struct list* get_func_args_declaration(const char* func_name,
       num_declaration_args = args_declaration->len;
     }
 
+    if (func_declaration[strlen(func_declaration) - 1] == ';') {
+      int test = 1;
+    }
+
+    *is_define = check_is_define(func_declaration);
     if ((func_args == NULL || num_declaration_args == func_args->len) &&
-        (strstr(func_declaration, "#define") != NULL ||
-         check_has_arg_names(args_declaration))) {
+        (*is_define || check_has_arg_names(args_declaration)) &&
+        func_declaration[strlen(func_declaration) - 1] != ';') {
       size_t line_number = atoi(curr_declaration_arr[2]);
         func_insert_func_decl_entry(func_name, func_declaration,
                                     curr_declaration_arr[0], line_number);
@@ -838,7 +887,7 @@ static struct list* get_func_declarations(const char* func_name,
   sprintf(cmd, "cscope -d -L0 %s", func_name);
   struct list* func_refs = utils_get_cscope_output(cmd);
 
-  if (strcmp(func_name, "net_eq_idr") == 0) {
+  if (strcmp(func_name, "asm") == 0) {
     int test = 1;
   }
 
@@ -854,16 +903,17 @@ static struct list* get_func_declarations(const char* func_name,
   for (struct list_node* curr = func_refs->head; curr != NULL; curr = curr->next) {
     char* func_ref = (char*) curr->payload;
     char** func_ref_arr;
-    if (strstr(func_ref,"struct cpuidle_monitor* (*do_register) (void);") != NULL) {
+    if (strstr(func_ref, "samples/bpf/test_lru_dist.c <global> 26 #define offsetof(TYPE, MEMBER) ((size_t)&((TYPE *)0)->MEMBER)") != NULL) {
       int test = 1;
     }
     size_t func_ref_arr_len = utils_split_str(func_ref, &func_ref_arr);
     char* full_func_ref = file_get_multiline_expr(func_ref,
-                                                  (const char**) func_ref_arr);
+                                                  (const char**) func_ref_arr,
+                                                  false);
     utils_free_if_different(func_ref, full_func_ref);
     func_ref = full_func_ref;
 
-    if (strcmp(func_ref, "struct timespec64 ts = { sec, min_t(u32, nsec, NSEC_PER_SEC - 1) };") == 0) {
+    if (strcmp(func_ref, "#define NtLmNegotiate     cpu_to_le32(1)") == 0) {
       int test = 1;
     }
 
@@ -930,8 +980,7 @@ static struct list* get_func_declarations(const char* func_name,
 
 struct list* func_get_func_args_name(const char* func_name,
                                      struct list* args_declaration,
-                                     const char** statement_arr,
-                                     size_t statement_arr_len) {
+                                     bool is_define) {
   struct list* func_arg_names = list_create();
 
   for (struct list_node* curr = args_declaration->head; curr != NULL;
@@ -943,9 +992,7 @@ struct list* func_get_func_args_name(const char* func_name,
       return list_create();
     }
     char* arg_name;
-    if (utils_str_in_array((const char**) statement_arr, "#define",
-                           statement_arr_len) ||
-        strchr(san_arg_declaration, ' ') == NULL) {
+    if (is_define || strchr(san_arg_declaration, ' ') == NULL) {
       arg_name = san_arg_declaration;
     } else {
       if (check_is_func_ptr(san_arg_declaration)) {
@@ -980,8 +1027,7 @@ struct list* func_get_func_args_refs(const char* func_name,
                                      struct list* var_args_indices,
                                      const char* func_src_file,
                                      ssize_t func_start_line,
-                                     const char** statement_arr,
-                                     size_t statement_arr_len) {
+                                     bool is_define) {
   struct list* func_arg_refs = list_create();
   for (struct list_node* curr = var_args_indices->head; curr != NULL; curr = curr->next) {
     size_t curr_arg_index = (size_t) curr->payload;
@@ -993,8 +1039,7 @@ struct list* func_get_func_args_refs(const char* func_name,
       arg_entry = var_create_func_var_entry(func_name, arg_name);
       struct list* global_var_refs;
       arg_refs = var_get_local_var_refs(arg_name, func_name, func_src_file,
-                                        func_start_line, statement_arr,
-                                        statement_arr_len, &global_var_refs);
+                                        func_start_line, is_define, &global_var_refs);
       if (arg_refs == NULL) {
         printf("Argument not found: Function: %s, Argument: %s\n", func_name,
                arg_name);
@@ -1021,6 +1066,7 @@ static bool handle_memcpy(const char* var_name, const char** var_ref_arr,
                           struct list* struct_hierarchy,
                           struct list_node* src_struct_match,
                           hash_map func_ptrs,
+                          bool record_match,
                           char** assigned_root_name,
                           struct list** assigned_hierarchy,
                           struct list** return_hierarchy,
@@ -1028,9 +1074,14 @@ static bool handle_memcpy(const char* var_name, const char** var_ref_arr,
   char* dest_var = (char*) func_call_args->head->payload;
   //char* actual_dest;
   if (check_is_func(dest_var)) {
+    struct list* ptr_hierarchy;
     *assigned_root_name = get_ptr_from_func_return(dest_var, var_ref_arr,
                                                    var_ref_arr_len, func_ptrs,
-                                                   assigned_hierarchy);
+                                                   &ptr_hierarchy);
+    if (ptr_hierarchy != NULL) {
+      *assigned_hierarchy = list_combine(ptr_hierarchy, struct_hierarchy);
+      list_free_nodes(ptr_hierarchy);
+    }
   } else {
     *assigned_hierarchy = struct_get_struct_hierarchy(dest_var, assigned_root_name);
     struct list* matched_hierarchy = list_copy(struct_hierarchy, src_struct_match);
@@ -1052,6 +1103,7 @@ static bool handle_memcpy(const char* var_name, const char** var_ref_arr,
                                                          var_ref_arr,
                                                          var_ref_arr_len,
                                                          func_ptrs,
+                                                         record_match,
                                                          return_hierarchy,
                                                          output_args);
       //var_insert_func_var_visited(func_name, *assigned_root_name,
@@ -1080,15 +1132,30 @@ static char* get_ptr_from_func_return(const char* func_call, const char** var_re
 
   for (struct list_node* curr = arg_args->head; curr != NULL; curr = curr->next) {
     char* arg_arg = (char*) curr->payload;
-    struct func_var_entry* entry = var_get_func_var_entry(out_func_name, arg_arg);
+    char* arg_arg_root;
+    struct list* arg_arg_hierarchy = struct_get_struct_hierarchy(arg_arg, &arg_arg_root);
+    
+    struct func_var_entry* entry = var_get_func_var_entry(out_func_name, arg_arg_root);
     struct list* arg_refs;
     if (entry == NULL) {
+      const char* func_declaration;
+      const char* func_src_file;
+      size_t func_start_line;
+      enum FuncDeclStatus status = func_get_func_decl(out_func_name, var_ref_arr[0],
+                                                      &func_declaration, &func_src_file,
+                                                      &func_start_line);
+      assert(status == FUNC_DECL_FOUND &&
+             "get_ptr_from_func_return: could not function declaration of function that must have been visited");
+      
       struct list* global_var_refs;
-      arg_refs = var_get_local_var_refs(arg_arg, out_func_name, var_ref_arr[0],
-                                        -1, var_ref_arr, var_ref_arr_len,
+      arg_refs = var_get_local_var_refs(arg_arg_root, out_func_name, func_src_file,
+                                        func_start_line,
+                                        check_is_define(func_declaration),
                                         &global_var_refs);
+      assert(arg_refs != NULL &&
+             "get_ptr_from_func_return: argument must be a local variable");
       list_free_nodes(global_var_refs);
-      entry = var_create_func_var_entry(out_func_name, arg_arg);
+      entry = var_create_func_var_entry(out_func_name, arg_arg_root);
       entry->var_refs = arg_refs;
     } else {
       arg_refs = entry->var_refs;
@@ -1099,25 +1166,26 @@ static char* get_ptr_from_func_return(const char* func_call, const char** var_re
     //                                              false, NULL);
     struct list* arg_return_hierarchy;
     struct list* output_args;
-    var_get_func_refs(arg_arg, list_create(), arg_refs,
-                      out_func_name, func_ptrs,
+    var_get_func_refs(arg_arg_root, list_create(), arg_refs,
+                      out_func_name, func_ptrs, false,
                       &arg_return_hierarchy, &output_args,
                       NULL);
     //list_free(output_args);
     //list_free(arg_refs);
-    if (return_hierarchy != NULL) {
+    if (arg_return_hierarchy != NULL) {
       //free(out_func_name);
       //for (struct list_node* n = curr->next; n != NULL; n = n->next) {
       //  free(n->payload);
       //}
       list_free_nodes(arg_args);
         
-      char* root_name;
-      struct list* assigned_hierarchy = struct_get_struct_hierarchy(arg_arg, &root_name);
-      utils_free_if_different(root_name, arg_arg);
-      *return_hierarchy = list_combine(assigned_hierarchy, arg_return_hierarchy);
+      //char* root_name;
+      //struct list* assigned_hierarchy = struct_get_struct_hierarchy(arg_arg, &root_name);
+      //utils_free_if_different(root_name, arg_arg);
+      *return_hierarchy = list_combine(arg_arg_hierarchy, arg_return_hierarchy);
       list_free_nodes(arg_return_hierarchy);
-      list_free_nodes(assigned_hierarchy);
+      list_free_nodes(arg_arg_hierarchy);
+      //list_free_nodes(assigned_hierarchy);
       return arg_arg;
     } else {
       //free(arg_arg);
@@ -1164,6 +1232,7 @@ static bool handle_output_args(const char* func_name,
                                const char** var_ref_arr,
                                size_t var_ref_arr_len,
                                hash_map func_ptrs,
+                               bool record_match,
                                struct list** additional_output_args,
                                struct list** return_hierarchy) {
   bool has_match = false;
@@ -1191,6 +1260,7 @@ static bool handle_output_args(const char* func_name,
       has_match |= assignment_get_assigned_var_funcs(func_name, call_arg_root,
                                                      struct_hierarchy, var_ref_arr,
                                                      var_ref_arr_len, func_ptrs,
+                                                     record_match,
                                                      &return_var_hierarchy,
                                                      &new_output_args);
       //var_func_extend_unique(funcs, additional_funcs);
@@ -1203,6 +1273,7 @@ static bool handle_output_args(const char* func_name,
     }
     if (new_output_args != NULL) {
       var_out_arg_extend_unique(*additional_output_args, new_output_args);
+      list_free_nodes(new_output_args);
     }
   }
 
@@ -1233,21 +1304,22 @@ static ssize_t get_func_arg_index(struct list_node* args_range, size_t func_star
   return -1;
 }
 
-bool func_list_contains_output_arg(struct list* out_args, struct output_arg* out_arg) {
+struct output_arg* func_list_get_output_arg(struct list* out_args,
+                                            const char* out_arg_name) {
   for (struct list_node* curr = out_args->head; curr != NULL; curr = curr->next) {
     struct output_arg* curr_out_arg = (struct output_arg*) curr->payload;
-    if (strcmp(curr_out_arg->name, out_arg->name) == 0) {
-      return true;
+    if (strcmp(curr_out_arg->name, out_arg_name) == 0) {
+      return curr_out_arg;
     }
   }
 
-  return false;
+  return NULL;
 }
 
 void func_handle_entrypoint_out_args(const char* entry_func, const char* caller_func,
                                      struct list* output_args, const char* func_ref,
                                      const char** func_ref_arr, size_t func_ref_arr_len,
-                                     struct list** return_hierarchy,
+                                     bool record_match, struct list** return_hierarchy,
                                      struct list** caller_out_args) {
   if (strcmp(func_ref,"fs/nfs/nfs42xdr.c decode_copy 974 status = decode_write_response(xdr, &res->write_res);") == 0) {
     int test = 1;
@@ -1281,11 +1353,12 @@ void func_handle_entrypoint_out_args(const char* entry_func, const char* caller_
     hash_map func_ptrs = map_create();
     handle_output_args(caller_func, caller_arg_names, entry_func, call_args,
                        entry_arg_names, output_args, func_ref_arr,
-                       func_ref_arr_len, func_ptrs, &additional_output_args,
-                       &return_var_hierarchy);
+                       func_ref_arr_len, func_ptrs, record_match,
+                       &additional_output_args, &return_var_hierarchy);
     if (return_var_hierarchy != NULL) {
       *return_hierarchy = return_var_hierarchy;
     }
     var_out_arg_extend_unique(*caller_out_args, additional_output_args);
+    list_free_nodes(additional_output_args);
   }
 }

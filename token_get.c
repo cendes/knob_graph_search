@@ -1,11 +1,14 @@
 #include <string.h>
 #include <ctype.h>
+#include <stdio.h>
+#include <assert.h>
 #include "c_keywords.h"
 #include "list.h"
 #include "hash_map.h"
 #include "utils.h"
 #include "database.h"
 #include "check_expression.h"
+#include "sanitize_expression.h"
 #include "struct_parse.h"
 #include "token_get.h"
 #include "func_call_parse.h"
@@ -18,6 +21,9 @@ struct macro_return_range {
 
 static struct macro_return_range* get_macro_return_entry(const char* macro_name,
                                                          const char* src_file);
+
+static bool is_func_return(const char* var_ref, const char* var_name,
+                           char** var_ref_no_funcs);
 
 static hash_map macro_return_ranges = map_create();
 
@@ -135,7 +141,11 @@ enum TokenReturnType token_get_return_match_node(const char* var_ref,
                                                  struct list* struct_hierarchy,
                                                  const char* func_name,
                                                  struct list_node** return_match_node) {
-  if (strcmp(var_ref, "((type *)(__mptr - offsetof(type, member))); })") == 0) {
+  const char* original_var_ref = var_ref;
+  char* san_var_ref = sanitize_remove_array_indexing(var_ref);
+  var_ref = san_var_ref;
+  
+  if (strcmp(func_name, "HASH_MIX") == 0) {
     int test = 1;
   }
   bool is_define = false;
@@ -148,9 +158,7 @@ enum TokenReturnType token_get_return_match_node(const char* var_ref,
                                                   &func_declaration, &func_src_file,
                                                   &func_start_line);
   if (status == FUNC_DECL_FOUND) {
-    //char** func_declaration_arr;
-    //size_t declaration_len = utils_split_str(func_declaration, &func_declaration_arr);
-    if (strstr(func_declaration, "#define") != NULL) {
+    if (check_is_define(func_declaration)) {
       is_define = true;
       if (strcmp(func_src_file, var_ref_arr[0]) == 0) {
         size_t curr_ref_line = atoi(var_ref_arr[2]);
@@ -158,7 +166,7 @@ enum TokenReturnType token_get_return_match_node(const char* var_ref,
           get_macro_return_entry(func_name, func_src_file);
         if (return_range != NULL && curr_ref_line >= return_range->return_start &&
             curr_ref_line <= return_range->return_end) {
-          if (strstr(var_ref, "#define") != NULL) {
+          if (check_is_define(var_ref)) {
             size_t args_start = strchr(var_ref, '(') - var_ref;
             statement_start = check_recur_with_parenthesis(var_ref, args_start + 1, '(');
             statement_start++;
@@ -166,24 +174,14 @@ enum TokenReturnType token_get_return_match_node(const char* var_ref,
             statement_start = 0;
           }
         } else {
-          //utils_free_str_arr(func_declaration_arr);
           return NO_RETURN;
         }
       } else {
         return NO_RETURN;
       }
-      /* if (strchr(func_declaration_arr[declaration_len - 1], '\\') != NULL || */
-      /*     strcmp(func_src_file, var_ref_arr[0]) != 0) { */
-      /*   utils_free_str_arr(func_declaration_arr); */
-      /*   return NO_RETURN; */
-      /* } else if (func_start_line == atoi(var_ref_arr[2])) { */
-      /*   size_t args_start = strchr(var_ref, '(') - var_ref; */
-      /*   statement_start = check_recur_with_parenthesis(var_ref, args_start + 1, '('); */
-      /* } else { */
-      /*   statement_start = 0; */
-      /* } */
     }
-    //utils_free_str_arr(func_declaration_arr);
+  } else {
+    //printf("No function declaration cached for current function: %s\n", func_name);
   }
 
   if (!is_define) {
@@ -196,35 +194,46 @@ enum TokenReturnType token_get_return_match_node(const char* var_ref,
     statement_start = return_index + strlen("return") + 1;
   }
 
-  char* return_statement = var_ref + statement_start;
-
+  const char* return_statement = var_ref + statement_start;
   char* var_ref_no_funcs;
-  if (check_is_func_return(return_statement, var_name, &var_ref_no_funcs)) {
+  if (is_func_return(return_statement, var_name, &var_ref_no_funcs)) {
     free(var_ref_no_funcs);
-    free(var_occurences);
+    utils_free_if_different(san_var_ref, original_var_ref);
     return FUNC_RETURN;
   }
 
-  struct list* hierarchy_matches = NULL;
-  
-  for (size_t i = 0; i < num_var_occurences; i++) {
-    if (check_is_token_match(var_ref, var_occurences[i], strlen(var_name))) {
-      struct list* curr_matches = struct_get_struct_matches(var_ref, var_name,
-                                                            struct_hierarchy);
-      list_free_nodes(var_indices);
-      if (hierarchy_matches->len == 0) {
-        list_free_nodes(hierarchy_matches);
-        return NO_RETURN;
-      } else {
-        *return_match_node = struct_get_highest_match(hierarchy_matches);
-        list_free_nodes(hierarchy_matches);
-        return VAR_RETURN;
-      }
-    }
+  struct list* struct_matches = struct_get_struct_matches(var_ref_no_funcs,
+                                                          var_name, struct_hierarchy);
+  utils_free_if_different(var_ref_no_funcs, return_statement);
+  if (struct_matches->len == 0) {
+    list_free_nodes(struct_matches);
+    utils_free_if_different(san_var_ref, original_var_ref);
+    return NO_RETURN;
+  } else {
+    *return_match_node = struct_get_highest_match(struct_matches);
+    list_free_nodes(struct_matches);
+    utils_free_if_different(san_var_ref, original_var_ref);
+    return VAR_RETURN;
   }
+  
+  /* for (size_t i = 0; i < num_var_occurences; i++) { */
+  /*   if (check_is_token_match(var_ref, var_occurences[i], strlen(var_name))) { */
+  /*     struct list* curr_matches = struct_get_struct_matches(var_ref, var_name, */
+  /*                                                           struct_hierarchy); */
+  /*     list_free_nodes(var_indices); */
+  /*     if (hierarchy_matches->len == 0) { */
+  /*       list_free_nodes(hierarchy_matches); */
+  /*       return NO_RETURN; */
+  /*     } else { */
+  /*       *return_match_node = struct_get_highest_match(hierarchy_matches); */
+  /*       list_free_nodes(hierarchy_matches); */
+  /*       return VAR_RETURN; */
+  /*     } */
+  /*   } */
+  /* } */
 
-  list_free_nodes(var_indices);
-  return NO_RETURN;
+  /* list_free_nodes(var_indices); */
+  /* return NO_RETURN; */
 }
 
 static bool is_func_return(const char* var_ref, const char* var_name,
@@ -236,28 +245,30 @@ static bool is_func_return(const char* var_ref, const char* var_name,
     char* func_name = token_get_func_name(var_ref, args_start_indices[i]);
     if (func_name != NULL) {
       size_t func_end_index = check_recur_with_parenthesis(var_ref, args_start_indices[i] + 1, '(');
-      struct index_range func_range =
+      assert(func_end_index < strlen(var_ref) &&
+             "is_func_return: function call does not end with parenthesis");
+      struct index_range* func_range =
         (struct index_range*) malloc(sizeof(struct index_range));
-      *func_range = {args_start_indices[i] - strlen(func_name), func_end_index};
+      *func_range = {args_start_indices[i] - strlen(func_name), func_end_index + 1};
       list_append(funcs_ranges, func_range);
     }
     free(func_name);
   }
   free(args_start_indices);
   
-  if (func_ranges->len == 0) {
-    list_free(func_ranges);
-    *var_ref_no_funcs = var_ref;
+  if (funcs_ranges->len == 0) {
+    list_free(funcs_ranges);
+    *var_ref_no_funcs = (char*) var_ref;
     return false;
   }
   *var_ref_no_funcs = sanitize_remove_substring(var_ref, funcs_ranges);
-  list_free(func_ranges);
+  list_free(funcs_ranges);
 
   size_t* var_occurences;
-  size_t num_var_occurences = utils_get_str_occurences(var_ref_no_funcs, var_name,
+  size_t num_var_occurences = utils_get_str_occurences(*var_ref_no_funcs, var_name,
                                                        &var_occurences);
   for (size_t i = 0; i < num_var_occurences; i++) {
-    if (check_is_token_match(var_ref_no_funcs, var_occurences[i], strlen(var_name))) {
+    if (check_is_token_match(*var_ref_no_funcs, var_occurences[i], strlen(var_name))) {
       free(var_occurences);
       return false;
     }

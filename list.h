@@ -30,6 +30,8 @@ ssize_t list_find_str(struct list* list, const char* str);
 
 void* list_get(struct list* list, size_t index);
 
+struct list_node* list_get_node(struct list* list, size_t index);
+
 void list_remove(struct list* list, ssize_t index);
 
 struct list* list_copy(struct list* list, struct list_node* start_node);

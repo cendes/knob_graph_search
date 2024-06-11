@@ -58,4 +58,8 @@ bool check_is_struct_root(const char* var_ref, size_t root_index);
 bool check_is_func_decl_in_scope(const char* func_decl, const char* decl_src_file,
                                  const char* ref_src_file);
 
+bool check_is_define(const char* var_ref);
+
+bool check_has_func_call(const char* var_ref, const char* func_name);
+
 #endif /* CHECK_EXPRESSION_H */

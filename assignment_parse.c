@@ -27,6 +27,7 @@ bool assignment_handle_var_assignment(const char* func_name,
                                       struct list* struct_hierarchy,
                                       bool is_return_assingment,
                                       hash_map func_ptrs,
+                                      bool record_match,
                                       struct list** return_hierarchy,
                                       struct list** output_args) { 
   if (strcmp(var_ref, "net/xfrm/xfrm_policy.c xfrm_bundle_lookup 2954 pols[0] = xfrm_policy_lookup(net, fl, family, dir, if_id);") == 0) {
@@ -86,7 +87,8 @@ bool assignment_handle_var_assignment(const char* func_name,
   bool has_match = assignment_get_assigned_var_funcs(func_name, assigned_root,
                                                      struct_hierarchy, var_ref_arr,
                                                      var_ref_arr_len, func_ptrs,
-                                                     return_hierarchy, output_args);
+                                                     record_match, return_hierarchy,
+                                                     output_args);
   if (out_arg_assignment) {
     assignment_append_out_arg(*output_args, assigned_root, struct_hierarchy);
   }
@@ -195,6 +197,7 @@ bool assignment_get_assigned_var_funcs(const char* func_name,
                                        const char** var_ref_arr,
                                        size_t var_ref_arr_len,
                                        hash_map func_ptrs,
+                                       bool record_match,
                                        struct list** return_hierarchy,
                                        struct list** output_args) {
   bool has_match = false;
@@ -214,8 +217,7 @@ bool assignment_get_assigned_var_funcs(const char* func_name,
         struct list* global_var_refs;
         assigned_var_refs = var_get_local_var_refs(assigned_var, func_name,
                                                    var_ref_arr[0], -1,
-                                                   var_ref_arr, var_ref_arr_len,
-                                                   &global_var_refs);
+                                                   false, &global_var_refs);
         if (assigned_var_refs == NULL) {
           entry = var_create_func_var_entry("<global>", root_assignment_name);
           is_global = true;
@@ -239,13 +241,14 @@ bool assignment_get_assigned_var_funcs(const char* func_name,
         printf("Local variable not found: Function %s, Variable %s\n",
                func_name, root_assignment_name);
         var_get_global_var_refs(root_assignment_name, struct_hierarchy,
-                                assigned_var_refs);
+                                assigned_var_refs, record_match);
         *return_hierarchy = NULL;
         *output_args = list_create();
       } else {
         has_match = var_get_func_refs(root_assignment_name, struct_hierarchy,
                                       assigned_var_refs, func_name, func_ptrs,
-                                      return_hierarchy, output_args, NULL);
+                                      record_match,  return_hierarchy, output_args,
+                                      NULL);
       }
       entry->locked = false;
     }

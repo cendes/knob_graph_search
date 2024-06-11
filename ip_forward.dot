@@ -1,19 +1,34 @@
-digraph "/home/cendes/Documents/masters_thesis/ocloz/knob_graphs/ip_forward.dot" {
+digraph "/home/cendes/Documents/masters_thesis/ocloz/knob_graph_search/./ip_forward.dot" {
+	 devinet_init_net -> _ROOT_
+	 sysctl_check_table -> _ROOT_
 	 __register_sysctl_table -> sysctl_check_table
+	 core_kernel_data -> _ROOT_
+	 ensure_safe_net_sysctl -> core_kernel_data
+	 BUG_ON -> _ROOT_
 	 __module_address -> BUG_ON
+	 within_module_init -> _ROOT_
 	 within_module -> within_module_init
+	 within_module_core -> _ROOT_
 	 within_module -> within_module_core
+	 within_module -> _ROOT_
+	 __module_address -> within_module
+	 mod_find -> within_module
+	 __lt_find -> _ROOT_
 	 latch_tree_find -> __lt_find
+	 latch_tree_find -> _ROOT_
+	 mod_find -> latch_tree_find
+	 mod_find -> _ROOT_
+	 __module_address -> mod_find
+	 __module_address -> _ROOT_
 	 is_module_address -> __module_address
+	 is_module_address -> _ROOT_
 	 ensure_safe_net_sysctl -> is_module_address
+	 ensure_safe_net_sysctl -> _ROOT_
 	 register_net_sysctl -> ensure_safe_net_sysctl
+	 DEVINET_SYSCTL_ENTRY -> _ROOT_
 	 DEVINET_SYSCTL_RO_ENTRY -> DEVINET_SYSCTL_ENTRY
 	 DEVINET_SYSCTL_COMPLEX_ENTRY -> DEVINET_SYSCTL_ENTRY
 	 DEVINET_SYSCTL_RW_ENTRY -> DEVINET_SYSCTL_ENTRY
-	 mod_find -> latch_tree_find
-	 __module_address -> mod_find
-	 __module_address -> within_module
-	 mod_find -> within_module
 	 devinet_init_net -> register_net_sysctl
 	 register_net_sysctl -> __register_sysctl_table
 	 DEVINET_SYSCTL_FLUSHING_ENTRY -> DEVINET_SYSCTL_COMPLEX_ENTRY

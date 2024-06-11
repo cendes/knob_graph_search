@@ -34,7 +34,8 @@ static size_t get_actual_num_brackets(char* line, char bracket_char);
 static void verify_multiline_var_ref(const char* multiline_var_ref,
                                      const char* san_var_ref, const char** var_ref_arr);
 
-char* file_get_multiline_expr(const char* var_ref, const char** var_ref_arr) {
+char* file_get_multiline_expr(const char* var_ref, const char** var_ref_arr,
+                              bool has_invalid_code) {
   if (strstr(var_ref, "net/xfrm/xfrm_policy.c xfrm_policy_inexact_lookup_rcu 1983 struct xfrm_pol_inexact_key k = {") != NULL) {
     int test = 1;
   }
@@ -57,8 +58,8 @@ char* file_get_multiline_expr(const char* var_ref, const char** var_ref_arr) {
     is_partial_directive = false;
   }
 
-  if (is_partial_directive || check_has_open_string(san_var_ref) ||
-      check_has_mismatched_parenthesis(san_var_ref) || strstr(var_ref, "#define") ||
+  if (has_invalid_code || is_partial_directive || check_has_open_string(san_var_ref) ||
+      check_has_mismatched_parenthesis(san_var_ref) || check_is_define(var_ref_arr[3]) ||
       (var_ref_arr[3][0] != '#' && !check_is_control_flow_expr(san_var_ref) &&
        !check_is_expression_with_effect(san_var_ref, var_ref_arr))) {
     if (var_ref_arr[3][0] == '.') {
@@ -172,7 +173,7 @@ static void verify_multiline_var_ref(const char* multiline_var_ref,
 }
 
 static char* get_full_expr(const char* source_file, size_t line_number) {
-  if (strcmp(source_file, "security/tomoyo/audit.c") == 0) {
+  if (strcmp(source_file, "net/rose/rose_route.c") == 0) {
     int test = 1;
   }
   if (!is_c_source_file(source_file)) {
@@ -204,7 +205,7 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
   size_t buf_size = 0;
   char* line;
   do {
-    if (curr_line == 1982) {
+    if (curr_line == 533) {
       int test = 1;
     }
     curr_line++;
@@ -261,7 +262,7 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
       open_assignment_brackets -= num_close_brackets;
     }
 
-    if (strstr(line, "#define") != NULL) {
+    if (check_is_define(line)) {
       is_in_macro = true;
       macro_return_start = curr_line;
     }
@@ -296,7 +297,8 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
       int test = 1;
     }
 
-    if (line[last] == ';' || line[last] == '}' || line[last] == ':' ||
+    if (line[last] == ';' || line[last] == '}' ||
+        (line[last] == ':' && strchr(expr, '?') == NULL && !check_is_asm_block(expr)) ||
         (line[last] == '{' && open_assignment_brackets == 0) ||
         (expr[0] == '.' && expr[last] == ',' && open_assignment_brackets == 0 &&
          !check_has_mismatched_parenthesis(expr)) ||
@@ -316,7 +318,7 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
       } else {
         if (is_in_macro) {
           macro_return_start = curr_line + 1;
-          if (strstr(expr, "#define") != NULL) {
+          if (check_is_define(expr)) {
             macro_name = token_find_func_name(expr);
           }
           if (!curr_define) {
@@ -424,7 +426,7 @@ ssize_t file_get_func_from_src(const char* source_file, const char* func_name,
 
     if (check_is_var_declaration(func_name, expr)) {
       *func_start_line = curr_line;
-      if (strstr(expr, "define") != NULL) {
+      if (check_is_define(expr)) {
         is_macro = true;
       }
     }
@@ -497,11 +499,17 @@ ssize_t file_get_func_end_line(const char* source_file, size_t func_start_line) 
       continue;
     }
 
-    if (curr_line == func_start_line && strstr(line, "#define") != NULL) {
+    if (curr_line == func_start_line && check_is_define(line)) {
       is_macro = true;
     }
     if (curr_line >= func_start_line) {
       bracket_found = get_open_brackets(line, &open_brackets) || bracket_found;
+      if (!bracket_found && !is_macro && line[strlen(line) - 1] == ';') {
+        utils_free_if_different(line, line_buf);
+        free(line_buf);
+        fclose(f);
+        return -1;
+      }
       if ((open_brackets == 0 && bracket_found && !is_macro) ||
           (is_macro && line[strlen(line) - 1] != '\\')) {
         fclose(f);
@@ -667,7 +675,7 @@ char* file_find_struct_name(const char* source_file, size_t line_number) {
           break;
         }
       }
-    } else if (strstr(line, "#define") != NULL) {
+    } else if (check_is_define(line)) {
       utils_free_if_different(line, line_buf);
       free(line_buf);
       fclose(f);

@@ -87,6 +87,16 @@ void* list_get(struct list* list, size_t index) {
   return NULL;
 }
 
+struct list_node* list_get_node(struct list* list, size_t index) {
+  for (struct list_node* curr = list->head; curr != NULL; curr = curr->next) {
+    if (curr->index == index) {
+      return curr;
+    }
+  }
+  
+  return NULL;
+}
+
 ssize_t list_find_str(struct list* list, const char* str) {
   for (struct list_node* curr = list->head; curr != NULL; curr = curr->next) {
     if (strcmp((char*) curr->payload, str) == 0) {

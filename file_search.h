@@ -1,7 +1,8 @@
 #ifndef FILE_SEARCH_H
 #define FILE_SEARCH_H
 
-char* file_get_multiline_expr(const char* var_ref, const char** var_ref_arr);
+char* file_get_multiline_expr(const char* var_ref, const char** var_ref_arr,
+                              bool has_invalid_code);
 
 ssize_t file_get_func_from_src(const char* source_file, const char* func_name,
                                ssize_t* func_start_line);

@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 #include "hash_map.h"
 #include "list.h"
 #include "call_graph.h"
@@ -16,7 +17,16 @@ struct call_graph* call_graph_create() {
 }
 
 void call_graph_add_root(struct call_graph* graph, const char* func_name) {
-  if (!map_contains(graph->nodes, func_name)) {
+  if (map_contains(graph->nodes, func_name)) {
+    size_t node_idx = list_find_str(graph->func_names, func_name);
+    assert(node_idx >= 0 &&
+           "call_graph_add_root: node is in function list but not in node map");
+    if (node_idx >= graph->num_root_nodes) {
+      list_remove(graph->func_names, node_idx);
+      list_insert(graph->func_names, func_name);
+      graph->num_root_nodes++;
+    }
+  } else {
     struct graph_node* root_node = create_node(func_name);
     map_insert(graph->nodes, func_name, root_node);
     list_insert(graph->func_names, func_name);
@@ -93,15 +103,21 @@ void call_graph_dump_dot(struct call_graph* graph, const char* file_name) {
     perror("Could not create file: ");
     return;
   }
+
+  size_t curr_func_index = 0;
   struct list* func = graph->func_names;
   for (struct list_node* curr_callee = func->head; curr_callee != NULL; curr_callee = curr_callee->next) {
     char* callee = (char*) curr_callee->payload;
+    if (curr_func_index < graph->num_root_nodes) {
+      fprintf(f, "\t %s -> _ROOT_\n", callee);
+    }
     struct graph_node* callee_node = (struct graph_node*) map_get(graph->nodes, callee);
     struct list* callers = map_get_key_list(callee_node->callers);
     for (struct list_node* curr_caller = callers->head; curr_caller != NULL; curr_caller = curr_caller->next) {
       char* caller = (char*) curr_caller->payload;
       fprintf(f, "\t %s -> %s\n", caller, callee);
     }
+    curr_func_index++;
   }
   fprintf(f, "}\n");
   fclose(f);

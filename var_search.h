@@ -16,19 +16,18 @@ extern struct call_graph* call_graph;
 char* var_find_knob_var(const char* knob, struct list** struct_hierarchy);
 
 void var_get_global_var_refs(const char* var_name, struct list* struct_hierarchy,
-                             struct list* var_refs);
+                             struct list* var_refs, bool record_match);
 
 bool var_get_func_refs(const char* var_name, struct list* struct_hierarchy,
                        struct list* var_refs, const char* func_name,
-                       hash_map func_ptrs,
+                       hash_map func_ptrs, bool record_match,
                        struct list** return_struct_hierarchy,
                        struct list** output_vars, hash_map* func_ret_map);
 
 struct list* var_get_local_var_refs(const char* var_name, const char* func_name,
                                     const char* func_src_file,
                                     ssize_t func_start_line,
-                                    const char** statement_arr,
-                                    size_t statement_arr_len, 
+                                    bool is_define,
                                     struct list** global_var_refs);
 
 //void var_func_extend_unique(struct list *funcs, struct list* additional_funcs);

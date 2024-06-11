@@ -19,6 +19,8 @@ static bool is_global_var_redeclaration(const char* var_name, const char* var_re
 
 static bool is_func_arg_name(const char* var_name, const char* var_ref, size_t var_start_index, const char* func_name);
 
+static bool has_asm_token(const char* var_ref, const char* asm_token);
+
 static bool has_token_match(const char* var_ref, const char* token);
 
 bool check_is_expression_with_effect(const char* var_ref, const char** var_ref_arr) {
@@ -26,7 +28,6 @@ bool check_is_expression_with_effect(const char* var_ref, const char** var_ref_a
   return (token_get_eq_index(var_ref) >= 0 || has_token_match(var_ref, "return") ||
           (has_token_match(var_ref, "case") && var_ref[var_ref_end] == ':')) &&
     (var_ref[var_ref_end] == ';' || var_ref[var_ref_end] == '}' ||
-     var_ref[var_ref_end] == ':' ||
      (var_ref_arr[3][0] == '.' && var_ref[var_ref_end] == ',')) &&
     (check_is_valid_varname_char(var_ref_arr[3][0]) || var_ref_arr[3][0] == '*' ||
      var_ref_arr[3][0] == '.');
@@ -166,6 +167,9 @@ static bool is_type_name(const char* var_ref, size_t var_start_index, size_t var
         free(original_next_token);
         return ret;
       }
+      free(var_name);
+      utils_free_if_different(next_token, original_next_token);
+      free(original_next_token);
     } else if (is_global) {
       char* next_token = (char*) malloc(strlen(var_ref) + 1);
       strncpy(next_token, var_ref + var_end_index, strlen(var_ref) + 1);
@@ -302,9 +306,21 @@ bool check_is_var_declaration(const char* var_name, const char* var_ref) {
                strcmp(token, "do") != 0 &&
                !utils_str_in_array(C_TYPE_MODIFIERS, token,
                                    UTILS_SIZEOF_ARR(C_TYPE_MODIFIERS)) &&
-               (strcmp(token, "#define") == 0 || check_is_valid_varname(token)) &&
+               ((token[0] == '#' && check_is_define(var_ref)) || check_is_valid_varname(token)) &&
                !utils_isnumeric(token)) {
-      if (strcmp(token, "#define") == 0) {
+      if (is_define_arg && !is_after_parenthesis && consecutive_tokens > 1) {
+        consecutive_tokens = 0;
+        is_define_arg = false;
+      }
+      
+      if (token[0] == '#' && check_is_define(var_ref)) {
+        if (strcmp(token, "#") == 0) {
+          token_end++;
+          while (isspace(var_ref[token_end])) {
+            token_end++;
+          }
+          token_end += strlen("define");
+        }
         is_define_arg = true;
       } else if (strcmp(token, "typeof") == 0) {
         while (token_end < strlen(var_ref) && isspace(var_ref[token_end])) {
@@ -326,12 +342,7 @@ bool check_is_var_declaration(const char* var_name, const char* var_ref) {
         return true;
       }
       
-      if (is_define_arg && !is_after_parenthesis && consecutive_tokens > 1) {
-        consecutive_tokens = 0;
-        is_define_arg = false;
-      } else {
-        consecutive_tokens++;
-      }
+      consecutive_tokens++;
       if (consecutive_tokens == 2) {
         has_declaration = true;
       }
@@ -415,23 +426,51 @@ bool check_is_valid_varname_char(char chr) {
 }
 
 bool check_is_asm_block(const char* var_ref) {
-  if (strstr(var_ref, "asm volatile (") != NULL || strstr(var_ref, "asm volatile(") != NULL) {
-    return true;
-  }
-  const char* asm_ptr = strstr(var_ref, "asm (");
-  size_t asm_len;
-  if (asm_ptr == NULL) {
-    asm_ptr = strstr(var_ref, "asm(");
-    asm_len = strlen("asm(");
-  } else {
-    asm_len = strlen("asm (");
+  return has_asm_token(var_ref, "asm") || has_asm_token(var_ref, "__asm__") ||
+    has_asm_token(var_ref, "__asm");
+    
+  /* if (strstr(var_ref, "asm volatile (") != NULL || strstr(var_ref, "asm volatile(") != NULL || */
+  /*     strstr(var_ref, "__asm__ __volatile__(") != NULL) { */
+  /*   return true; */
+  /* } */
+  /* const char* asm_ptr = strstr(var_ref, "asm ("); */
+  /* size_t asm_len; */
+  /* if (asm_ptr == NULL) { */
+  /*   asm_ptr = strstr(var_ref, "asm("); */
+  /*   asm_len = strlen("asm("); */
+  /* } else { */
+  /*   asm_len = strlen("asm ("); */
+  /* } */
+
+  /* if (asm_ptr != NULL) { */
+  /*   int test = 1; */
+  /* } */
+
+  /* return asm_ptr != NULL && check_is_token_match(var_ref, asm_ptr - var_ref, asm_len); */
+}
+
+static bool has_asm_token(const char* var_ref, const char* asm_token) {
+  size_t* asm_occurences;
+  size_t num_asms = utils_get_str_occurences(var_ref, asm_token, &asm_occurences);
+  for (size_t i = 0; i < num_asms; i++) {
+    if (check_is_token_match(var_ref, asm_occurences[i], strlen(asm_token))) {
+      size_t curr_index = asm_occurences[i] + strlen(asm_token);
+      while(curr_index < strlen(var_ref) && isspace(var_ref[curr_index])) {
+        curr_index++;
+      }
+      const char* curr_ref_ptr = var_ref + curr_index;
+      if (curr_index < strlen(var_ref) &&
+          (var_ref[curr_index] == '(' ||
+           strstr(curr_ref_ptr, "volatile") == curr_ref_ptr ||
+           strstr(curr_ref_ptr, "__volatile__") == curr_ref_ptr)) {
+        free(asm_occurences);
+        return true;
+      }
+    }
   }
 
-  if (asm_ptr != NULL) {
-    int test = 1;
-  }
-
-  return asm_ptr != NULL && check_is_token_match(var_ref, asm_ptr - var_ref, asm_len);
+  free(asm_occurences);
+  return false;
 }
 
 bool check_is_extern(const char* var_ref) {
@@ -627,10 +666,37 @@ bool check_is_struct_root(const char* var_ref, size_t root_index) {
 
 bool check_is_func_decl_in_scope(const char* func_decl, const char* decl_src_file,
                                  const char* ref_src_file) {
-  return (!check_is_static(func_decl) && strstr(func_decl, "#define") == NULL &&
+  return (!check_is_static(func_decl) && !check_is_define(func_decl) &&
           strcmp(func_decl, "main") != 0) ||
     strstr(decl_src_file, ".h") != NULL || strcmp(decl_src_file, ref_src_file) == 0;
 }
 
+bool check_is_define(const char* var_ref) {
+  if (strlen(var_ref) > 0 && var_ref[0] == '#') {
+    const char* curr_ref_ptr = var_ref + 1;
+    while (*curr_ref_ptr != '\0' && isspace(*curr_ref_ptr)) {
+      curr_ref_ptr++;
+    }
+    return curr_ref_ptr == strstr(curr_ref_ptr, "define");
+  } else {
+    return false;
+  }
+}
 
+bool check_has_func_call(const char* var_ref, const char* func_name) {
+  size_t* args_start_indices;
+  size_t num_start_indices = utils_get_char_occurences(var_ref, '(',
+                                                       &args_start_indices);
+  for (size_t i = 0; i < num_start_indices; i++) {
+    char* func_call_name = token_get_func_name(var_ref, args_start_indices[i]);
+    if (func_call_name != NULL && strcmp(func_call_name, func_name) == 0) {
+      free(args_start_indices);
+      free(func_call_name);
+      return true;
+    }
+    free(func_call_name);
+  }
 
+  free(args_start_indices);
+  return false;
+}
