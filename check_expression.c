@@ -30,7 +30,7 @@ bool check_is_expression_with_effect(const char* var_ref, const char** var_ref_a
     (var_ref[var_ref_end] == ';' || var_ref[var_ref_end] == '}' ||
      (var_ref_arr[3][0] == '.' && var_ref[var_ref_end] == ',')) &&
     (check_is_valid_varname_char(var_ref_arr[3][0]) || var_ref_arr[3][0] == '*' ||
-     var_ref_arr[3][0] == '.');
+     var_ref_arr[3][0] == '.') && var_ref_arr[3][0] != '}';
 }
 
 bool check_is_control_flow_expr(const char* var_ref) {
@@ -224,9 +224,6 @@ static bool is_func_arg_name(const char* var_name, const char* var_ref, size_t v
 
 
 bool check_is_var_declaration(const char* var_name, const char* var_ref) {
-  if (strcmp(var_name, "entry") == 0) {
-    int test = 1;
-  }
   size_t i = 0;
   size_t consecutive_tokens = 0;
   bool has_declaration = false;
@@ -236,6 +233,7 @@ bool check_is_var_declaration(const char* var_name, const char* var_ref) {
   bool is_after_equals = false;
   bool is_control_decl = false;
   bool is_struct_declaration = false;
+  bool is_fuse_args = false;
   while (i < strlen(var_ref)) {
     size_t token_start = i;
     bool has_space = false;
@@ -247,8 +245,44 @@ bool check_is_var_declaration(const char* var_name, const char* var_ref) {
           has_space = true;
         } else if (var_ref[token_start] == ',') {
           is_after_comma = true;
-        } else if (var_ref[token_start] == '(' && !has_space) {
-          is_after_parenthesis = true;
+        } else if (var_ref[token_start] == '(' /*&& !has_space*/) {
+          if (consecutive_tokens > 0 && !is_define_arg) {
+            size_t par_start = token_start + 1;
+            while (par_start < strlen(var_ref) &&
+                   (isspace(var_ref[par_start]) || var_ref[par_start] == '*')) {
+              par_start++;
+            }
+            size_t par_end = par_start;
+            while (par_end < strlen(var_ref) &&
+                   check_is_valid_varname_char(var_ref[par_end])) {
+              par_end++;
+            }
+            size_t curr_idx = par_end;
+            while (curr_idx < strlen(var_ref) && isspace(var_ref[curr_idx])) {
+              curr_idx++;
+            }
+            if (curr_idx < strlen(var_ref) && var_ref[curr_idx] == ')') {
+              curr_idx++;
+              while (curr_idx < strlen(var_ref) && isspace(var_ref[curr_idx])) {
+                curr_idx++;
+              }
+              if (curr_idx < strlen(var_ref) && (var_ref[curr_idx] == '(' || var_ref[curr_idx] == '[')) {
+                size_t nested_token_size = par_end - par_start;
+                char* nested_token = (char*) malloc(nested_token_size + 1);
+                strncpy(nested_token, var_ref + par_start, nested_token_size);
+                nested_token[nested_token_size] = '\0';
+                if (strcmp(var_name, nested_token) == 0) {
+                  free(nested_token);
+                  return true;
+                }
+                free(nested_token);
+              }
+            }
+          }
+          
+          if (!has_space) {
+            is_after_parenthesis = true;
+          }
         } else if (var_ref[token_start] == ')') {
           is_define_arg = false;
         } else if (var_ref[token_start] == '=') {
@@ -266,7 +300,7 @@ bool check_is_var_declaration(const char* var_name, const char* var_ref) {
         consecutive_tokens = 0;
       }
       if (var_ref[token_start] == '[') {
-        token_start = check_recur_with_parenthesis(var_ref, token_start, '[');
+        token_start = check_recur_with_parenthesis(var_ref, token_start + 1, '[');
       }
       token_start++;
     }
@@ -334,10 +368,40 @@ bool check_is_var_declaration(const char* var_name, const char* var_ref) {
         }
       } else if (utils_str_in_array(C_KEYWORDS, token, UTILS_SIZEOF_ARR(C_KEYWORDS) - 3)) {
         is_control_decl = true;
+      } else if(strcmp(token, "DEFINE_VEC") == 0) {
+        size_t def_start = token_end;
+        while (def_start < strlen(var_ref) && var_ref[def_start] != ',') {
+          def_start++;
+        }
+        def_start++;
+        while (def_start < strlen(var_ref) && isspace(var_ref[def_start])) {
+          def_start++;
+        }
+        size_t def_end = def_start;
+        while (def_end < strlen(var_ref) && check_is_valid_varname_char(var_ref[def_end])) {
+          def_end++;
+        }
+        if (def_end < strlen(var_ref)) {
+          size_t def_len = def_end - def_start;
+          char* def_token = (char*) malloc(def_len + 1);
+          strncpy(def_token, var_ref + def_start, def_len);
+          def_token[def_len] = '\0';
+          if (strcmp(def_token, var_name) == 0) {
+            free(def_token);
+            return true;
+          }
+          free(def_token);
+        }
+      } else if (strcmp(token, "FUSE_ARGS") == 0) {
+        is_fuse_args = true;
       } else if ((consecutive_tokens > 0 ||
                   (has_declaration && is_after_comma && !is_after_parenthesis) ||
-                  (is_define_arg && (is_after_parenthesis || is_after_comma)))
+                  (is_define_arg && (is_after_parenthesis || is_after_comma)) ||
+                  (is_fuse_args && is_after_parenthesis))
                  && strcmp(token, var_name) == 0) {
+        if (is_fuse_args && is_after_parenthesis) {
+          int test = 1;
+        }
         free(token);
         return true;
       }
@@ -346,7 +410,8 @@ bool check_is_var_declaration(const char* var_name, const char* var_ref) {
       if (consecutive_tokens == 2) {
         has_declaration = true;
       }
-    } else {
+    } else if (!utils_str_in_array(C_TYPE_MODIFIERS, token,
+                                   UTILS_SIZEOF_ARR(C_TYPE_MODIFIERS))) {
       consecutive_tokens = 0;
     }
     free(token);
@@ -683,6 +748,39 @@ bool check_is_define(const char* var_ref) {
   }
 }
 
+bool check_is_preprocessor_directive(const char* var_ref, const char* directive) {
+  if (strlen(var_ref) > 0 && var_ref[0] == '#') {
+    const char* curr_ref_ptr = var_ref + 1;
+    while (*curr_ref_ptr != '\0' && isspace(*curr_ref_ptr)) {
+      curr_ref_ptr++;
+    }
+    return curr_ref_ptr == strstr(curr_ref_ptr, directive);
+  } else {
+    return false;
+  }
+}
+
+bool check_is_preprocessor_macro(const char* var_ref, const char* directive,
+                                 const char* macro) {
+  if (strlen(var_ref) > 0 && var_ref[0] == '#') {
+    const char* curr_ref_ptr = var_ref + 1;
+    while (*curr_ref_ptr != '\0' && isspace(*curr_ref_ptr)) {
+      curr_ref_ptr++;
+    }
+    if (curr_ref_ptr == strstr(curr_ref_ptr, directive)) {
+      curr_ref_ptr += strlen(directive);
+      while (*curr_ref_ptr != '\0' && isspace(*curr_ref_ptr)) {
+        curr_ref_ptr++;
+      }
+      return curr_ref_ptr == strstr(curr_ref_ptr, macro);
+    } else {
+      return false;
+    }
+  } else {
+    return false;
+  }
+}
+
 bool check_has_func_call(const char* var_ref, const char* func_name) {
   size_t* args_start_indices;
   size_t num_start_indices = utils_get_char_occurences(var_ref, '(',
@@ -699,4 +797,18 @@ bool check_has_func_call(const char* var_ref, const char* func_name) {
 
   free(args_start_indices);
   return false;
+}
+
+bool check_has_operand(const char* var_ref) {
+  for (size_t i = 0; i < UTILS_SIZEOF_ARR(C_OPERANDS); i++) {
+    if (strchr(var_ref, C_OPERANDS[i]) != NULL) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+bool check_is_struct(const char* var_ref) {
+  return has_token_match(var_ref, "struct") || has_token_match(var_ref, "union");
 }

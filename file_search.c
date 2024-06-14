@@ -13,19 +13,62 @@
 
 #define EXPR_SIZE 65536
 
+struct bracket_state {
+  char* label;
+  struct bracket_state* parent;
+  hash_map children;
+  ssize_t open_block_brackets_diff;
+  ssize_t open_assignment_brackets_diff;
+  bool prev_bracket_assign;
+  size_t open_block_brackets_in;
+  size_t open_assignment_brackets_in;
+};
+
 static char* get_full_expr(const char* source_file, size_t line_number);
 
 static bool is_c_source_file(const char* source_file);
 
 static char* get_clean_line(char** line_buf, FILE* f, size_t* buf_size,
-                            bool* has_open_comment, size_t* nexted_if_0_levels,
-                            bool* has_open_str);
+                            bool* has_open_comment, size_t* nested_if_0_levels,
+                            size_t* nested_asm_levels, bool* has_open_str);
 
 static char* remove_comments(char* line_buf, size_t bytes_read,
                              bool* has_open_comment, size_t* nested_if_0_levels,
-                             bool* has_open_str);
+                             size_t* nested_asm_levels, bool* has_open_str);
 
 static bool is_curr_define(char** line);
+
+static struct bracket_state* create_bracket_state_node(struct bracket_state* parent,
+                                                       char* label,
+                                                       size_t open_block_brackets,
+                                                       size_t open_assignment_brackets,
+                                                       bool prev_bracket_assign);
+
+static struct bracket_state* create_bracket_state_root();
+
+static void save_current_bracket_state(struct bracket_state* curr_state,
+                                       size_t open_block_brackets,
+                                       size_t open_assignment_brackets,
+                                       bool prev_bracket_assign);
+
+static size_t visit_next_bracket_state(char* line, struct bracket_state** curr_state,
+                                       char* last_label,
+                                       size_t* open_block_brackets,
+                                       size_t* open_assignment_brackets,
+                                       bool* prev_bracket_assign);
+
+static size_t restore_previous_bracket_state(struct bracket_state** curr_state,
+                                             size_t* open_block_brackets,
+                                             size_t* open_assignment_brackets,
+                                             bool* prev_bracket_assign,
+                                             char** last_label);
+
+static void merge_bracket_states(struct bracket_state* parent_state,
+                                 struct bracket_state* else_state,
+                                 size_t open_block_brackets,
+                                 size_t open_assignment_brackets);
+
+static void pop_bracket_state(struct list* bracket_state_stack);
 
 static bool get_open_brackets(char* line, size_t* open_brackets);
 
@@ -38,6 +81,9 @@ char* file_get_multiline_expr(const char* var_ref, const char** var_ref_arr,
                               bool has_invalid_code) {
   if (strstr(var_ref, "net/xfrm/xfrm_policy.c xfrm_policy_inexact_lookup_rcu 1983 struct xfrm_pol_inexact_key k = {") != NULL) {
     int test = 1;
+  }
+  if (strlen(var_ref) == 0) {
+    return (char*) var_ref;
   }
   bool has_open_str = false;
   char* san_var_ref = sanitize_remove_string_literals(var_ref, &has_open_str);
@@ -173,11 +219,14 @@ static void verify_multiline_var_ref(const char* multiline_var_ref,
 }
 
 static char* get_full_expr(const char* source_file, size_t line_number) {
-  if (strcmp(source_file, "net/rose/rose_route.c") == 0) {
+  if (strcmp(source_file, "arch/x86/kernel/cpu/common.c") == 0) {
+    int test = 1;
+  }
+  if (strcmp(source_file, "security/tomoyo/group.c") == 0) {
     int test = 1;
   }
   if (!is_c_source_file(source_file)) {
-    printf("get_full_expr: not a C souce file: %s\n", source_file);
+    fprintf(stderr, "get_full_expr: not a C souce file: %s\n", source_file);
     char* empty_str = (char*) calloc(1, 1);
     return empty_str;
   }
@@ -193,9 +242,14 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
   size_t curr_idx = 0;
   size_t open_assignment_brackets = 0;
   size_t open_block_brackets = 0;
-  size_t nested_if_0_levels = 0;
   bool prev_bracket_assign = false;
+  struct bracket_state* curr_bracket_state = create_bracket_state_root();
+  //struct bracket_state* curr_bracket_state = bracket_state_root;
+  bool is_else_state = false;
+  size_t nested_if_0_levels = 0;
+  size_t nested_asm_levels = 0;
   bool prev_define = false;
+  bool is_cond_directive = false;
   bool has_open_comment = false;
   bool has_open_str = false;
   bool is_in_macro = false;
@@ -205,12 +259,13 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
   size_t buf_size = 0;
   char* line;
   do {
-    if (curr_line == 533) {
+    if (curr_line == 125) {
       int test = 1;
     }
     curr_line++;
     line = get_clean_line(&line_buf, f, &buf_size, &has_open_comment,
-                          &nested_if_0_levels, &has_open_str);
+                          &nested_if_0_levels, &nested_asm_levels,
+                          &has_open_str);
     assert(line != NULL && "get_full_expr: line is NULL");
     //if (line == NULL) {
     //  utils_free_if_different(line, line_buf);
@@ -219,7 +274,10 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
     //  fclose(f);
     //  return NULL;
     //}
-    if (curr_line == line_number && nested_if_0_levels > 0) {
+    if ((curr_line == line_number &&
+         (nested_if_0_levels > 0 || nested_asm_levels > 0 || is_cond_directive)) ||
+        check_is_preprocessor_macro(line, "define", "TRACE_SYSTEM")) {
+      //list_free(bracket_state_stack);
       utils_free_if_different(line, line_buf);
       free(line_buf);
       free(expr);
@@ -228,6 +286,7 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
       return empty_str;
     }
     if (strlen(line) == 0) {
+      is_cond_directive = false;
       utils_free_if_different(line, line_buf);
       continue;
     }
@@ -235,23 +294,128 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
     char* original_line = line;
     bool curr_define = is_curr_define(&line);
     utils_free_if_both_different(original_line, line_buf, line);
-    if (strlen(line) == 0) {
-      prev_define = true;
+    if (strlen(line) == 0 || is_cond_directive) {
+      if (is_cond_directive) {
+        int test = 1;
+      }
+      prev_define = curr_define;
+      is_cond_directive = is_cond_directive && curr_define;
       utils_free_if_different(line, line_buf);
       continue;
     }
+    if (check_is_preprocessor_directive(line, "if") ||
+        check_is_preprocessor_directive(line, "ifdef") ||
+        check_is_preprocessor_directive(line, "ifndef")) {
+      if (curr_line == line_number) {
+        utils_free_if_different(line, line_buf);
+        free(line_buf);
+        free(expr);
+        fclose(f);
+        char* empty_str = (char*) calloc(1, 1);
+        return empty_str;
+      }
+      is_cond_directive = curr_define;
+      save_current_bracket_state(curr_bracket_state, open_block_brackets,
+                                 open_assignment_brackets, prev_bracket_assign);
+      open_block_brackets = visit_next_bracket_state(line, &curr_bracket_state,
+                                                     NULL, &open_block_brackets,
+                                                     &open_assignment_brackets,
+                                                     &prev_bracket_assign);
+      utils_free_if_different(line, line_buf);
+      continue;
+    } else if (check_is_preprocessor_directive(line, "else") ||
+               check_is_preprocessor_directive(line, "elsif") ||
+               check_is_preprocessor_directive(line, "endif")) {
+      if (curr_line == line_number) {
+        utils_free_if_different(line, line_buf);
+        free(line_buf);
+        free(expr);
+        fclose(f);
+        char* empty_str = (char*) calloc(1, 1);
+        return empty_str;
+      }
+      is_cond_directive = curr_define;
+      size_t old_open_block_brackets = open_block_brackets;
+      size_t old_open_assignment_brackets = open_assignment_brackets;
+      char* last_label;
+      if (is_else_state) {
+        if (curr_bracket_state->parent != NULL) {
+          merge_bracket_states(curr_bracket_state->parent, curr_bracket_state,
+                               open_block_brackets, open_assignment_brackets);
+          curr_bracket_state = curr_bracket_state->parent;
+        }
+        is_else_state = false;
+      } else {
+        open_block_brackets = restore_previous_bracket_state(&curr_bracket_state,
+                                                             &open_block_brackets,
+                                                             &open_assignment_brackets,
+                                                             &prev_bracket_assign,
+                                                             &last_label);
+      }
+      if (check_is_preprocessor_directive(line, "else") ||
+          check_is_preprocessor_directive(line, "elsif")) {
+        open_block_brackets = visit_next_bracket_state(line, &curr_bracket_state,
+                                                       last_label,
+                                                       &open_block_brackets,
+                                                       &open_assignment_brackets,
+                                                       &prev_bracket_assign);
+        is_else_state = check_is_preprocessor_directive(line, "else");
+      }
+      if (old_open_block_brackets != open_block_brackets ||
+          old_open_assignment_brackets != open_assignment_brackets) {
+        int test = 1;
+      }
+      utils_free_if_different(line, line_buf);
+      continue;
+    }
+    is_cond_directive = false;
+    
     get_open_brackets(line, &open_block_brackets);
 
     size_t last = strlen(line) - 1;
     bool curr_bracket_assign = false;
     if (open_assignment_brackets == 0) {
-      if (line[last] == '{' && last > 0) {
-        size_t search_idx = last - 1;
-        while (search_idx >= 0 && isspace(line[search_idx])) {
-          search_idx--;
+      ssize_t eq_index = token_get_eq_index(line);
+      ssize_t start_idx = -1;
+      if (eq_index >= 0) {
+        size_t search_idx = eq_index + 1;
+        while (search_idx < strlen(line) && isspace(line[search_idx])) {
+          search_idx++;
         }
-        if (check_is_assignment_op(line, search_idx)) {
-          open_assignment_brackets = 1;
+        if (search_idx < strlen(line) && line[search_idx] == '{') {
+          start_idx = search_idx;
+        }
+      } else if (check_is_struct(line)) {
+        size_t* struct_keywords;
+        size_t num_struct_keywords = utils_get_str_occurences(line, "struct",
+                                                              &struct_keywords);
+        for (size_t i = 0; i < num_struct_keywords; i++) {
+          if (check_is_token_match(line, struct_keywords[i], strlen("struct"))) {
+            size_t curr_idx = struct_keywords[i] + strlen("struct");
+            while (curr_idx < strlen(line) &&
+                   (isspace(line[curr_idx]) ||
+                    check_is_valid_varname_char(line[curr_idx]))) {
+              curr_idx++;
+            }
+            if (curr_idx < strlen(line) && line[curr_idx] == '{') {
+              start_idx = curr_idx;
+              break;
+            }
+          }
+        }
+        free(struct_keywords);
+      }
+      if (start_idx > 0) {
+        size_t check_idx = check_recur_with_parenthesis(line, start_idx + 1, '{');
+        if (check_idx >= strlen(line)) {
+          size_t num_open_brackets =
+            utils_get_char_occurences(line + start_idx, '{', NULL);
+          size_t num_close_brackets =
+            utils_get_char_occurences(line + start_idx, '}', NULL);
+          open_assignment_brackets = num_open_brackets;
+          assert(open_assignment_brackets >= num_close_brackets &&
+                 "get_full_expr: mismatched assignment brackets");
+          open_assignment_brackets -= num_close_brackets;
           curr_bracket_assign = true;
         }
       }
@@ -259,7 +423,13 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
       size_t num_open_brackets = utils_get_char_occurences(line, '{', NULL);
       size_t num_close_brackets = utils_get_char_occurences(line, '}', NULL);
       open_assignment_brackets += num_open_brackets;
-      open_assignment_brackets -= num_close_brackets;
+      //assert(open_assignment_brackets >= num_close_brackets &&
+      //       "get_full_expr: mismatched assignment brackets");
+      if (num_close_brackets >= open_assignment_brackets) {
+        open_assignment_brackets = 0;
+      } else {
+        open_assignment_brackets -= num_close_brackets;
+      }
     }
 
     if (check_is_define(line)) {
@@ -271,7 +441,7 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
     //  expr[0] = '\0';
     //  curr_idx = 0;
     if (line[0] == '.' && line[last] == ',' &&
-        prev_bracket_assign && curr_line <= line_number)  {
+        open_assignment_brackets > 0 && curr_line <= line_number)  {
       open_assignment_brackets = 0;
       strncpy(expr, line, strlen(line));
       curr_idx = strlen(line);
@@ -293,11 +463,11 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
       curr_idx += strlen(line);
       expr[curr_idx] = '\0';
     }
-    if (line[last] == ':') {
+    if (line[last] == ';' && open_assignment_brackets != 0) {
       int test = 1;
     }
 
-    if (line[last] == ';' || line[last] == '}' ||
+    if ((line[last] == ';' && open_assignment_brackets == 0) || line[last] == '}' ||
         (line[last] == ':' && strchr(expr, '?') == NULL && !check_is_asm_block(expr)) ||
         (line[last] == '{' && open_assignment_brackets == 0) ||
         (expr[0] == '.' && expr[last] == ',' && open_assignment_brackets == 0 &&
@@ -341,6 +511,7 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
   } while (line != NULL);
 
   //printf("Full expression: %s\n", expr);
+  //list_free(bracket_state_stack);
   free(line_buf);
   fclose(f);
   
@@ -364,7 +535,7 @@ static bool is_c_source_file(const char* source_file) {
 ssize_t file_get_func_from_src(const char* source_file, const char* func_name,
                                ssize_t* func_start_line) {
   if (!is_c_source_file(source_file)) {
-    printf("file_get_func_from_src: not a C souce file: %s\n", source_file);
+    fprintf(stderr, "file_get_func_from_src: not a C souce file: %s\n", source_file);
     return -1;
   }
   
@@ -379,6 +550,7 @@ ssize_t file_get_func_from_src(const char* source_file, const char* func_name,
   bool is_macro = false;
   bool prev_define = false;
   size_t nested_if_0_levels = 0;
+  size_t nested_asm_levels = 0;
   bool has_open_comment = false;
   bool has_open_str = false;
   size_t curr_line = 0;
@@ -392,7 +564,7 @@ ssize_t file_get_func_from_src(const char* source_file, const char* func_name,
   do {
     curr_line++;
     line = get_clean_line(&line_buf, f, &buf_size, &has_open_comment,
-                          &nested_if_0_levels, &has_open_str);
+                          &nested_if_0_levels, &nested_asm_levels, &has_open_str);
     if (line == NULL) {
       utils_free_if_different(line, line_buf);
       //free(line_buf);
@@ -465,7 +637,7 @@ ssize_t file_get_func_from_src(const char* source_file, const char* func_name,
 
 ssize_t file_get_func_end_line(const char* source_file, size_t func_start_line) {
   if (!is_c_source_file(source_file)) {
-    printf("file_get_func_end_line: not a C souce file: %s\n", source_file);
+    fprintf(stderr, "file_get_func_end_line: not a C souce file: %s\n", source_file);
     return -1;
   }
   
@@ -475,10 +647,14 @@ ssize_t file_get_func_end_line(const char* source_file, size_t func_start_line) 
   }
 
   size_t open_brackets = 0;
+  struct bracket_state* bracket_state_root = create_bracket_state_root();
+  struct bracket_state* curr_bracket_state = bracket_state_root;
+  bool is_else_state = true;
   bool bracket_found = false;
   bool is_macro = false;
   bool has_open_comment = false;
   size_t nested_if_0_levels = 0;
+  size_t nested_asm_levels = 0;
   bool has_open_str = false;
   size_t curr_line = 0;
   char* line_buf = NULL;
@@ -487,8 +663,9 @@ ssize_t file_get_func_end_line(const char* source_file, size_t func_start_line) 
   do {
     curr_line++;
     line = get_clean_line(&line_buf, f, &buf_size, &has_open_comment,
-                          &nested_if_0_levels, &has_open_str);
+                          &nested_if_0_levels, &nested_asm_levels, &has_open_str);
     if (line == NULL) {
+      //list_free(bracket_state_stack);
       utils_free_if_different(line, line_buf);
       free(line_buf);
       fclose(f);
@@ -499,12 +676,50 @@ ssize_t file_get_func_end_line(const char* source_file, size_t func_start_line) 
       continue;
     }
 
+    size_t tmp_s = 0;
+    bool tmp_b = false;
+    if (check_is_preprocessor_directive(line, "if") ||
+        check_is_preprocessor_directive(line, "ifdef") ||
+        check_is_preprocessor_directive(line, "ifndef")) {
+      save_current_bracket_state(curr_bracket_state, open_brackets, tmp_s, tmp_b);
+      open_brackets = visit_next_bracket_state(line, &curr_bracket_state, NULL,
+                                               &open_brackets, &tmp_s, &tmp_b);
+      utils_free_if_different(line, line_buf);
+      continue;
+    } else if (check_is_preprocessor_directive(line, "else") ||
+               check_is_preprocessor_directive(line, "elsif") ||
+               check_is_preprocessor_directive(line, "endif")) {
+      char* last_label;
+      if (is_else_state) {
+        if (curr_bracket_state->parent != NULL) {
+          merge_bracket_states(curr_bracket_state->parent, curr_bracket_state,
+                               open_brackets, 0);
+          curr_bracket_state = curr_bracket_state->parent;
+        }
+        is_else_state = false;
+      } else {
+        open_brackets = restore_previous_bracket_state(&curr_bracket_state,
+                                                       &open_brackets, &tmp_s,
+                                                       &tmp_b, &last_label);
+      }
+      if (check_is_preprocessor_directive(line, "else") ||
+          check_is_preprocessor_directive(line, "elsif")) {
+        open_brackets = visit_next_bracket_state(line, &curr_bracket_state,
+                                                 last_label, &open_brackets,
+                                                 &tmp_s, &tmp_b);
+        is_else_state = check_is_preprocessor_directive(line, "else");
+      }
+      utils_free_if_different(line, line_buf);
+      continue;
+    }
+
     if (curr_line == func_start_line && check_is_define(line)) {
       is_macro = true;
     }
     if (curr_line >= func_start_line) {
       bracket_found = get_open_brackets(line, &open_brackets) || bracket_found;
       if (!bracket_found && !is_macro && line[strlen(line) - 1] == ';') {
+        //list_free(bracket_state_stack);
         utils_free_if_different(line, line_buf);
         free(line_buf);
         fclose(f);
@@ -512,6 +727,7 @@ ssize_t file_get_func_end_line(const char* source_file, size_t func_start_line) 
       }
       if ((open_brackets == 0 && bracket_found && !is_macro) ||
           (is_macro && line[strlen(line) - 1] != '\\')) {
+        //list_free(bracket_state_stack);
         fclose(f);
         utils_free_if_different(line, line_buf);
         free(line_buf);
@@ -531,7 +747,7 @@ ssize_t file_get_func_end_line(const char* source_file, size_t func_start_line) 
 
 static char* get_clean_line(char** line_buf, FILE* f, size_t* buf_size,
                             bool* has_open_comment, size_t* nested_if_0_levels,
-                            bool* has_open_str) {
+                            size_t* nested_asm_levels, bool* has_open_str) {
   ssize_t bytes_read = getline(line_buf, buf_size, f);
   if (bytes_read < 0) {
     return NULL;
@@ -539,18 +755,18 @@ static char* get_clean_line(char** line_buf, FILE* f, size_t* buf_size,
   (*line_buf)[bytes_read] = '\0';
 
   return remove_comments(*line_buf, bytes_read, has_open_comment,
-                         nested_if_0_levels, has_open_str);
+                         nested_if_0_levels, nested_asm_levels, has_open_str);
 }
 
 static char* remove_comments(char* line_buf, size_t bytes_read,
                              bool* has_open_comment, size_t* nested_if_0_levels,
-                             bool* has_open_str) {
+                             size_t* nested_asm_levels, bool* has_open_str) {
 
   char* line = sanitize_remove_comments_and_strip(line_buf, has_open_comment,
                                                   has_open_str);
   if (*nested_if_0_levels == 0 &&
-      (strstr(line, "#if 0") != NULL ||
-       strstr(line, "#elif 0"))) {
+      (check_is_preprocessor_macro(line, "if", "0") ||
+       check_is_preprocessor_macro(line, "elif", "0"))) {
     *has_open_comment = false;
     *has_open_str = false;
     *nested_if_0_levels = 1;
@@ -558,19 +774,41 @@ static char* remove_comments(char* line_buf, size_t bytes_read,
   } else if (*nested_if_0_levels > 0) {
     *has_open_comment = false;
     *has_open_str = false;
-    if (strstr(line, "#if") != NULL ||
-        strstr(line, "#ifdef") != NULL||
-        strstr(line, "#ifndef") != NULL) {
+    if (check_is_preprocessor_directive(line, "if") ||
+        check_is_preprocessor_directive(line, "ifdef") ||
+        check_is_preprocessor_directive(line, "ifndef")) {
       (*nested_if_0_levels)++;
     }
-    if (strstr(line, "#endif") != NULL ||
+    if (check_is_preprocessor_directive(line, "endif") ||
         (*nested_if_0_levels == 1 &&
-         (strstr(line, "#else") != NULL ||
-          (strstr(line, "#elif") != NULL &&
-           strstr(line, "#elif 0") == NULL)))) {
+         (check_is_preprocessor_directive(line, "else") ||
+          (check_is_preprocessor_directive(line, "elif") &&
+           !check_is_preprocessor_macro(line, "elif", "0"))))) {
       assert(*nested_if_0_levels > 0 &&
              "remove_comments: inconsistent nested #if 0 level");
       (*nested_if_0_levels)--;
+    }
+    line[0] = '\0';
+  }
+
+  if (*nested_asm_levels == 0 &&
+      (check_is_preprocessor_macro(line, "ifndef", "__ASSEMBLY__") ||
+       check_is_preprocessor_macro(line, "ifdef", "__ASSEMBLY__"))) {
+    *has_open_comment = false;
+    *has_open_str = false;
+    *nested_asm_levels = 1;
+    line[0] = '\0';
+  } else if (*nested_asm_levels > 0) {
+    *has_open_comment = false;
+    *has_open_str = false;
+    if (check_is_preprocessor_directive(line, "if") ||
+        check_is_preprocessor_directive(line, "ifdef") ||
+        check_is_preprocessor_directive(line, "ifndef")) {
+      (*nested_asm_levels)++;
+    } else if (check_is_preprocessor_directive(line, "endif")) {
+      assert(*nested_asm_levels > 0 &&
+             "remove_comments: inconsistent nested #ifdef __ASSEMBLY__ levels");
+      (*nested_asm_levels)--;
     }
     line[0] = '\0';
   }
@@ -586,6 +824,134 @@ static bool is_curr_define(char** line) {
   } else {
     return false;
   }
+}
+
+static struct bracket_state* create_bracket_state_node(struct bracket_state* parent,
+                                                       char* label,
+                                                       size_t open_block_brackets,
+                                                       size_t open_assignment_brackets,
+                                                       bool prev_bracket_assign) {
+  struct bracket_state* state =
+    (struct bracket_state*) malloc(sizeof(struct bracket_state));
+  state->label = label;
+  state->parent = parent;
+  state->open_block_brackets_in = open_block_brackets;
+  state->open_assignment_brackets_in = open_assignment_brackets;
+  state->prev_bracket_assign = prev_bracket_assign;
+  state->open_block_brackets_diff = 0;
+  state->open_assignment_brackets_diff = 0;
+  state->children = map_create();
+  return state;
+}
+
+static struct bracket_state* create_bracket_state_root() {
+  char* empty_label = (char*) calloc(1, 1);
+  return create_bracket_state_node(NULL, empty_label, 0, 0, false);
+}
+
+static void save_current_bracket_state(struct bracket_state* curr_state,
+                                       size_t open_block_brackets,
+                                       size_t open_assignment_brackets,
+                                       bool prev_bracket_assign) {
+  if (curr_state->parent == NULL) {
+    curr_state->open_block_brackets_diff = open_block_brackets;
+    curr_state->open_assignment_brackets_diff = open_assignment_brackets;
+    curr_state->prev_bracket_assign = prev_bracket_assign;
+  } else {
+    //struct bracket_state* prev_state = curr_state->parent;
+    curr_state->open_block_brackets_diff =
+      open_block_brackets - curr_state->open_block_brackets_in;
+    curr_state->open_assignment_brackets_diff =
+      open_assignment_brackets - curr_state->open_assignment_brackets_in;
+  }
+  curr_state->prev_bracket_assign = prev_bracket_assign;
+  //curr_state->open_block_brackets_in = open_block_brackets;
+  //curr_state->open_assignment_brackets_in = open_assignment_brackets;
+}
+
+static size_t visit_next_bracket_state(char* line,
+                                       struct bracket_state** curr_state,
+                                       char* last_label,
+                                       size_t* open_block_brackets,
+                                       size_t* open_assignment_brackets,
+                                       bool* prev_bracket_assign) {
+  char* label;
+  if (check_is_preprocessor_directive(line, "else")) {
+    label = (char*) malloc(strlen(last_label) + 2);
+    sprintf(label, "#%s", last_label);
+  } else {
+    char* macro = token_get_preprocessor_macro(line);
+    if (check_is_preprocessor_directive(line, "elsif")) {
+      label = (char*) malloc(strlen(last_label) + strlen(macro) + 2);
+      sprintf(label, "%s#%s", macro, last_label);
+      free(macro);
+    } else {
+      label = macro;
+    }
+  }
+  
+  if (map_contains((*curr_state)->children, label)) {
+    *curr_state = (struct bracket_state*) map_get((*curr_state)->children, label);
+    (*curr_state)->open_block_brackets_in = *open_block_brackets;
+    (*curr_state)->open_assignment_brackets_in = *open_assignment_brackets;
+  } else {
+    struct bracket_state* next_state =
+      create_bracket_state_node(*curr_state, label, *open_block_brackets,
+                                *open_assignment_brackets, *prev_bracket_assign);
+    map_insert((*curr_state)->children, label, next_state);
+    *curr_state = next_state;
+  }
+
+  *open_block_brackets += (*curr_state)->open_block_brackets_diff;
+  *open_assignment_brackets += (*curr_state)->open_assignment_brackets_diff;
+  *prev_bracket_assign = (*curr_state)->prev_bracket_assign;
+
+  return *open_block_brackets;
+}
+
+static size_t restore_previous_bracket_state(struct bracket_state** curr_state,
+                                             size_t* open_block_brackets,
+                                             size_t* open_assignment_brackets,
+                                             bool* prev_bracket_assign,
+                                             char** last_label) {
+  *last_label = (*curr_state)->label;
+  struct bracket_state* prev_state = (*curr_state)->parent;
+  if (prev_state == NULL) {
+    return *open_block_brackets;
+  }
+  
+  (*curr_state)->open_block_brackets_diff =
+    *open_block_brackets - (*curr_state)->open_block_brackets_in;
+  (*curr_state)->open_assignment_brackets_diff =
+    *open_assignment_brackets - (*curr_state)->open_assignment_brackets_in;
+  (*curr_state)->open_block_brackets_in = *open_block_brackets;
+  (*curr_state)->open_assignment_brackets_in = *open_assignment_brackets;
+  (*curr_state)->prev_bracket_assign = prev_bracket_assign;
+
+  assert((ssize_t) *open_block_brackets >= (*curr_state)->open_block_brackets_diff &&
+         (ssize_t) *open_assignment_brackets >= (*curr_state)->open_assignment_brackets_diff &&
+         "restored_previous_bracket_state: difference is greater than the actual value");
+  *open_block_brackets -= (*curr_state)->open_block_brackets_diff;
+  *open_assignment_brackets -= (*curr_state)->open_assignment_brackets_diff;
+  *prev_bracket_assign = prev_state->prev_bracket_assign;
+  
+  *curr_state = prev_state;
+  return *open_block_brackets;
+}
+
+static void merge_bracket_states(struct bracket_state* parent_state,
+                                 struct bracket_state* else_state,
+                                 size_t open_block_brackets,
+                                 size_t open_assignment_brackets) {
+  else_state->open_block_brackets_diff =
+    open_block_brackets - else_state->open_block_brackets_in;
+  else_state->open_assignment_brackets_diff =
+    open_assignment_brackets - else_state->open_assignment_brackets_in;
+  parent_state->open_block_brackets_diff += else_state->open_block_brackets_diff;
+  parent_state->open_assignment_brackets_diff += else_state->open_assignment_brackets_diff;
+  parent_state->prev_bracket_assign = else_state->prev_bracket_assign;
+  else_state->open_block_brackets_in = open_block_brackets;
+  else_state->open_assignment_brackets_in = open_assignment_brackets;
 }
 
 static bool get_open_brackets(char* line, size_t* open_brackets) {
@@ -627,7 +993,7 @@ static size_t get_actual_num_brackets(char* line, char bracket_char) {
 
 char* file_find_struct_name(const char* source_file, size_t line_number) {
   if (!is_c_source_file(source_file)) {
-    printf("file_find_struct_name: not a C souce file: %s\n", source_file);
+    fprintf(stderr, "file_find_struct_name: not a C souce file: %s\n", source_file);
     char* empty_str = (char*) calloc(1, 1);
     return empty_str;
   }
@@ -641,13 +1007,15 @@ char* file_find_struct_name(const char* source_file, size_t line_number) {
   size_t curr_line = 0;
   char* line_buf = NULL;
   size_t nested_if_0_levels = 0;
+  size_t nested_asm_levels = 0;
   bool has_open_comment = false;
   bool has_open_str = false;
   size_t buf_size = 0;
   do {
     curr_line++;
     char* line = get_clean_line(&line_buf, f, &buf_size, &has_open_comment,
-                                &nested_if_0_levels, &has_open_str);
+                                &nested_if_0_levels, &nested_asm_levels,
+                                &has_open_str);
     if (line == NULL) {
       utils_free_if_different(line, line_buf);
       free(line_buf);
@@ -695,4 +1063,28 @@ char* file_find_struct_name(const char* source_file, size_t line_number) {
   free(line_buf);
   fclose(f);
   return NULL;
+}
+
+char* file_get_line(const char* source_file, size_t line_number) {
+  FILE* f = fopen(source_file, "r");
+  assert(f != NULL && "file_get_line: failed to open file");
+
+  size_t curr_line = 0;
+  char* line_buf = NULL;
+  char* line = NULL;
+  size_t nested_if_0_levels = 0;
+  size_t nested_asm_levels = 0;
+  bool has_open_comment = false;
+  bool has_open_str = false;
+  size_t buf_size = 0;
+  do {
+    curr_line++;
+    line = get_clean_line(&line_buf, f, &buf_size, &has_open_comment,
+                          &nested_if_0_levels, &nested_asm_levels, &has_open_str);
+    assert(line != NULL && "file_get_line: line cannot be NULL");
+  } while(curr_line < line_number);
+
+  utils_free_if_different(line_buf, line);
+  fclose(f);
+  return line;
 }

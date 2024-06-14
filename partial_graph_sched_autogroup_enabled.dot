@@ -1,6 +1,5 @@
-digraph "/home/cendes/Documents/masters_thesis/ocloz/knob_graph_search/./partial_graph_busy_poll.dot" {
-	 busy_loop_timeout -> _ROOT_
-	 net_busy_loop_on -> _ROOT_
+digraph "/home/cendes/Documents/masters_thesis/ocloz/knob_graph_search/./partial_graph_sched_autogroup_enabled.dot" {
+	 autogroup_task_group -> _ROOT_
 	 __READ_ONCE -> _ROOT_
 	 READ_ONCE -> __READ_ONCE
 	 __native_word -> _ROOT_
@@ -8,6 +7,6 @@ digraph "/home/cendes/Documents/masters_thesis/ocloz/knob_graph_search/./partial
 	 compiletime_assert_rwonce_type -> _ROOT_
 	 READ_ONCE -> compiletime_assert_rwonce_type
 	 READ_ONCE -> _ROOT_
-	 busy_loop_timeout -> READ_ONCE
-	 net_busy_loop_on -> READ_ONCE
+	 autogroup_task_group -> READ_ONCE
+	 setup_autogroup -> _ROOT_
 }

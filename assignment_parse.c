@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include "list.h"
 #include "hash_map.h"
+#include "database.h"
 #include "utils.h"
 #include "check_expression.h"
 #include "sanitize_expression.h"
@@ -207,29 +208,63 @@ bool assignment_get_assigned_var_funcs(const char* func_name,
   char* root_assignment_name = struct_get_root_name(assigned_var);
 
   if (assigned_var != NULL) {
+    if (strcmp(func_name, "seccomp_attach_filter") == 0 &&
+        strcmp(root_assignment_name, "current") == 0) {
+      return false;
+    }
+    if (check_has_operand(root_assignment_name)) {
+      // TODO: this is a temporary solution
+      size_t var_end = 0;
+      while (check_is_valid_varname_char(root_assignment_name[var_end])) {
+        var_end++;
+      }
+      char* actual_assignment_name = (char*) malloc(var_end + 1);
+      strncpy(actual_assignment_name, root_assignment_name, var_end);
+      actual_assignment_name[var_end] = '\0';
+      //free(root_assignment_name);
+      root_assignment_name = actual_assignment_name;
+    }
     struct func_var_entry* entry = var_get_func_var_entry(func_name,
                                                           root_assignment_name);
     bool is_global = false;
     struct list* assigned_var_refs;
+    struct func_var_entry* local_empty_entry = NULL;
     if (entry == NULL) {
+      struct list* global_var_refs;
+      assigned_var_refs = var_get_local_var_refs(assigned_var, func_name,
+                                                 var_ref_arr[0], -1,
+                                                 false, &global_var_refs);
+      if (assigned_var_refs == NULL) {
+        local_empty_entry =
+          var_create_func_var_entry(func_name, root_assignment_name);
+        local_empty_entry->var_refs = list_create();
+
+        char cmd[256];
+        sprintf(cmd, "cscope -d -L1 %s", root_assignment_name);
+        struct list* global_definitions = utils_get_cscope_output(cmd);
+        if (global_definitions->len == 0) {
+          fprintf(stderr, "No variable declaration found: Function %s Variable %s\n",
+                  func_name, root_assignment_name);
+          list_free(global_var_refs);
+          global_var_refs = list_create();
+        }
+        list_free(global_definitions);
+        
+        entry = var_create_func_var_entry("<global>", root_assignment_name);
+        is_global = true;
+        assigned_var_refs = global_var_refs;
+      } else {
+        entry = var_create_func_var_entry(func_name, root_assignment_name);
+      }
+      entry->var_refs = assigned_var_refs;
+    } else if (entry->var_refs->len == 0) {
       entry = var_get_func_var_entry("<global>", root_assignment_name);
       if (entry == NULL) {
-        struct list* global_var_refs;
-        assigned_var_refs = var_get_local_var_refs(assigned_var, func_name,
-                                                   var_ref_arr[0], -1,
-                                                   false, &global_var_refs);
-        if (assigned_var_refs == NULL) {
-          entry = var_create_func_var_entry("<global>", root_assignment_name);
-          is_global = true;
-          assigned_var_refs = global_var_refs;
-        } else {
-          entry = var_create_func_var_entry(func_name, root_assignment_name);
-        }
-        entry->var_refs = assigned_var_refs;
-      } else {
-        assigned_var_refs = entry->var_refs;
-        is_global = true;
+        fprintf(stderr, "No references to variable: %s\n", root_assignment_name);
+        return false;
       }
+      is_global = true;
+      assigned_var_refs = entry->var_refs;
     } else {
       assigned_var_refs = entry->var_refs;
       is_global = false;
@@ -238,10 +273,17 @@ bool assignment_get_assigned_var_funcs(const char* func_name,
     if (!entry->locked) {
       entry->locked = true;
       if (is_global) {
-        printf("Local variable not found: Function %s, Variable %s\n",
+        if (strcmp(root_assignment_name, "patch") == 0) {
+          int test = 1;
+        }
+        fprintf(stderr, "Local variable not found: Function %s, Variable %s\n",
                func_name, root_assignment_name);
         var_get_global_var_refs(root_assignment_name, struct_hierarchy,
                                 assigned_var_refs, record_match);
+        if (local_empty_entry != NULL) {
+          database_write_func_vars_visited_entry(func_name, root_assignment_name,
+                                                 local_empty_entry);
+        }
         *return_hierarchy = NULL;
         *output_args = list_create();
       } else {
@@ -272,7 +314,9 @@ bool assignment_get_assigned_var_funcs(const char* func_name,
 
 void assignment_append_out_arg(struct list* out_args, char* arg_name,
                                struct list* struct_hierarchy) {
+  char* arg_name_cpy = (char*) malloc(strlen(arg_name) + 1);
+  strncpy(arg_name_cpy, arg_name, strlen(arg_name) + 1);
   struct output_arg* output_arg = (struct output_arg*) malloc(sizeof(struct output_arg));
-  *output_arg = {arg_name, struct_hierarchy};
+  *output_arg = {arg_name_cpy, struct_hierarchy};
   list_append(out_args, output_arg);
 }

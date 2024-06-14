@@ -60,6 +60,15 @@ bool check_is_func_decl_in_scope(const char* func_decl, const char* decl_src_fil
 
 bool check_is_define(const char* var_ref);
 
+bool check_is_preprocessor_directive(const char* var_ref, const char* directive);
+
+bool check_is_preprocessor_macro(const char* var_ref, const char* directive,
+                                 const char* macro);
+
 bool check_has_func_call(const char* var_ref, const char* func_name);
+
+bool check_has_operand(const char* var_ref);
+
+bool check_is_struct(const char* var_ref);
 
 #endif /* CHECK_EXPRESSION_H */

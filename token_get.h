@@ -28,4 +28,6 @@ ssize_t token_get_eq_index(const char* var_ref);
 size_t token_get_actual_indices(const char* curr_var_ref, const char* comment_type,
                                 bool has_open_str, size_t** comment_indices);
 
+char* token_get_preprocessor_macro(const char* var_ref);
+
 #endif /* TOKEN_GET_H */

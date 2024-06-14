@@ -11,4 +11,6 @@ ssize_t file_get_func_end_line(const char* source_file, size_t func_start_line);
 
 char* file_find_struct_name(const char* source_file, size_t line_number);
 
+char* file_get_line(const char* source_file, size_t line_number);
+
 #endif /* FILE_SEARCH_H */

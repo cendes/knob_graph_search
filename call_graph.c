@@ -12,6 +12,7 @@ struct call_graph* call_graph_create() {
   struct call_graph* graph = (struct call_graph*) malloc(sizeof(struct call_graph));
   graph->num_root_nodes = 0;
   graph->func_names = list_create();
+  graph->entrypoints = list_create();
   graph->nodes = map_create();
   return graph;
 }
@@ -78,6 +79,16 @@ void call_graph_dump(struct call_graph* graph, const char* file_name) {
     fwrite(func_name, 1, strlen(func_name) + 1, f);
   }
   fwrite(&graph->num_root_nodes, sizeof(size_t), 1, f);
+
+  fwrite(&graph->entrypoints->len, sizeof(size_t), 1, f);
+  for (struct list_node* curr_entrypoint = graph->entrypoints->head;
+       curr_entrypoint != NULL; curr_entrypoint = curr_entrypoint->next) {
+    char* entrypoint = (char*) curr_entrypoint->payload;
+    ssize_t entrypoint_idx = list_find_str(graph->func_names, entrypoint);
+    assert(entrypoint_idx >= 0 &&
+           "call_graph_dump_nodes: entrypoint not on function list");
+    fwrite(&entrypoint_idx, sizeof(size_t), 1, f);
+  }
 
   for (struct list_node* curr_callee = funcs->head; curr_callee != NULL;
        curr_callee = curr_callee->next) {
@@ -149,6 +160,18 @@ struct call_graph* call_graph_load(const char* file_name) {
   }
 
   fread(&graph->num_root_nodes, sizeof(size_t), 1, f);
+
+  size_t num_entrypoints;
+  fread(&num_entrypoints, sizeof(size_t), 1, f);
+  for (size_t i = 0; i < num_entrypoints; i++) {
+    size_t entrypoint_idx;
+    fread(&entrypoint_idx, sizeof(size_t), 1, f);
+    char* entrypoint = (char*) list_get(graph->func_names, entrypoint_idx);
+    assert(entrypoint != NULL &&
+           "call_graph_load: entrypoint not on function list");
+    list_append(graph->entrypoints, entrypoint);
+  }
+  
   for (struct list_node* curr = graph->func_names->head; curr != NULL; curr = curr->next) {
     char* curr_callee = (char*) curr->payload;
     size_t num_callers;
@@ -157,6 +180,8 @@ struct call_graph* call_graph_load(const char* file_name) {
       size_t caller_index;
       fread(&caller_index, sizeof(size_t), 1, f);
       char* curr_caller = (char*) list_get(graph->func_names, caller_index);
+      assert(curr_caller != NULL &&
+             "call_graph_load: found function index not on function list");
       call_graph_insert(graph, curr_callee, curr_caller);
     }
   }

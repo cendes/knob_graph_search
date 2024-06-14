@@ -6,6 +6,7 @@
 struct call_graph {
   size_t num_root_nodes;
   struct list* func_names;
+  struct list* entrypoints;
   hash_map nodes;
 };
 

@@ -286,6 +286,7 @@ char* sanitize_remove_array_indexing(const char* var_ref) {
       curr_index = close_idx + 1;
     }
   }
+  free(bracket_indices);
 
   char* new_var_ref = sanitize_remove_substring(var_ref, bracket_ranges);
   list_free(bracket_ranges);

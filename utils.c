@@ -12,14 +12,14 @@ size_t utils_split_str(const char* str, char*** str_arr) {
 
   char** arr = (char**) malloc(sizeof(char*) * 256);
   arr[0] = str_tmp;
-  char* token = strtok(str_tmp, " ");
+  char* token = strtok(str_tmp, " \t");
   int arr_size = 1;
   while (token != NULL) {
     if (strlen(token) == 0) {
       int test = 1;
     }
     arr[arr_size] = token;
-    token = strtok(NULL, " ");
+    token = strtok(NULL, " \t");
     arr_size++;
   }
 

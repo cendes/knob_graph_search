@@ -40,7 +40,7 @@ struct list* func_get_func_call_args(const char* var_name,
                                      const char* var_ref, struct list** funcs,
                                      struct list** funcs_start,
                                      struct list** var_args_indices,
-                                     struct list** args_struct_matches,
+                                     struct list** func_args_hierarchies,
                                      struct list** args_range);
 
 struct list* func_extract_func_arg_names(const char* func_name,
@@ -78,7 +78,7 @@ void func_free_out_arg(void* void_out_arg);
 struct output_arg* func_list_get_output_arg(struct list* out_args,
                                             const char* out_arg_name);
 
-void func_handle_entrypoint_out_args(const char* entry_func, const char* caller_func,
+bool func_handle_entrypoint_out_args(const char* entry_func, const char* caller_func,
                                      struct list* output_args, const char* func_ref,
                                      const char** func_ref_arr, size_t func_ref_arr_len,
                                      bool record_match, struct list** return_hierarchy,

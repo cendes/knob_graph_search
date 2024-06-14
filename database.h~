@@ -1,9 +1,0 @@
-#ifndef DATABASE_H
-#define DATABASE_H
-
-hash_map database_read(const char* filename);
-
-void database_write_entry(const char* func, const char* var,
-                          struct func_var_entry* entry);
-
-#endif /* DATABASE_H */

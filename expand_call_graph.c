@@ -9,13 +9,14 @@
 #include "struct_parse.h"
 #include "func_call_parse.h"
 #include "assignment_parse.h"
+#include "file_search.h"
 #include "var_search.h"
 
 #define MAX_DEPTH 10
 
 // TODO: Fix issue with fake recursive calls for macros
 
-static const char* FUNCS_TO_IGNORE[] = {"main", "test", "init"};
+static const char* FUNCS_TO_IGNORE[] = {"main", "test", "init", "module_init", "module_exit", "MODULE_LICENSE"};
 
 static void get_func_callers(struct call_graph* graph, const char* func_name,
                              const char* func_alias_root,
@@ -60,6 +61,7 @@ static void get_callers_in_refs(struct call_graph* graph, const char* func_name,
     char* func_ref = (char*) curr_ref->payload;
     char** func_ref_arr;
     size_t func_ref_arr_len = utils_split_str(func_ref, &func_ref_arr);
+    func_ref = file_get_multiline_expr(func_ref, (const char**) func_ref_arr, false);
     if (!check_is_var_declaration(func_alias_root, func_ref)) {
       if (check_is_func(func_ref)) {
         if (strcmp(func_ref_arr[1], "<global>") == 0) {

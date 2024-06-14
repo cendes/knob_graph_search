@@ -34,6 +34,9 @@ hash_map database_read_func_vars_visited(const char* filename) {
   do {
     func = read_database_string(func_vars_visited_file);
     if (func != NULL) {
+      if (strcmp(func, "EMIT") == 0) {
+        int test = 1;
+      }
       char* var = read_database_string(func_vars_visited_file);
       struct list* var_refs = read_string_list(func_vars_visited_file);
       struct list* full_var_refs = read_string_list(func_vars_visited_file);
@@ -75,6 +78,7 @@ void database_read_visited_func_decls(const char* filename) {
       size_t line_number;
       fread(&line_number, sizeof(size_t), 1, visited_func_decls_file);
       func_insert_func_decl_entry(func, func_declaration, source_file, line_number);
+      free(source_file);
     }
   } while(func != NULL);
 }
@@ -120,6 +124,9 @@ static struct list* read_string_list(FILE* file) {
   struct list* string_list = list_create();
   for (size_t i = 0; i < num_strings; i++) {
     char* string = read_database_string(file);
+    if (string == NULL) {
+      string = "";
+    }
     list_append(string_list, string);
   }
 

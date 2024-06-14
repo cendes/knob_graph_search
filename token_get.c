@@ -44,12 +44,40 @@ char* token_find_func_name(const char* var_ref) {
 }
 
 char* token_get_func_name(const char* var_ref, size_t args_start_index) {
-  if (strcmp(var_ref,"net/ieee802154/nl802154.c nl802154_prepare_wpan_dev_dump 267 list_for_each_entry(tmp, &(*rdev)->wpan_dev_list, list) {") == 0) {
+  if (strcmp(var_ref,"arch/x86/kernel/cpu/microcode/amd.c apply_microcode_early_amd 430 patch = (u8 (*)[PATCH_MAX_SIZE])__pa_nodebug(&amd_ucode_patch);") == 0) {
     int test = 1;
   }
   if (args_start_index == 0 || check_is_func_ptr(var_ref)) {
     return NULL;
   }
+  if (!check_is_define(var_ref)) {
+    size_t par_start = args_start_index + 1;
+    while (par_start < strlen(var_ref) && (isspace(var_ref[par_start]) || var_ref[par_start] == '*')) {
+      par_start++;
+    }
+    size_t par_end = par_start;
+    size_t valid_varname_nested_chars = 0;
+    while (par_end < strlen(var_ref) && check_is_valid_varname_char(var_ref[par_end])) {
+      par_end++;
+      valid_varname_nested_chars++;
+    }
+    size_t curr_idx = par_end;
+    while (curr_idx < strlen(var_ref) && isspace(var_ref[curr_idx])) {
+      curr_idx++;
+    }
+    if (curr_idx < strlen(var_ref) && var_ref[curr_idx] == ')') {
+      curr_idx++;
+      while (curr_idx < strlen(var_ref) && isspace(var_ref[curr_idx])) {
+        curr_idx++;
+      }
+      if (curr_idx < strlen(var_ref) &&
+          (token_get_eq_index(var_ref) < 0 || valid_varname_nested_chars == 0) &&
+          (var_ref[curr_idx] == '(' || var_ref[curr_idx] == '[')) {
+        return NULL;
+      }
+    }
+  }
+  
   ssize_t func_name_end = args_start_index - 1;
   while(func_name_end > 0 && isspace(var_ref[func_name_end])) {
     func_name_end--;
@@ -141,6 +169,9 @@ enum TokenReturnType token_get_return_match_node(const char* var_ref,
                                                  struct list* struct_hierarchy,
                                                  const char* func_name,
                                                  struct list_node** return_match_node) {
+  if (strstr(var_ref, var_ref_arr[0]) == var_ref) {
+    var_ref = strstr(var_ref, var_ref_arr[2]) + strlen(var_ref_arr[2]) + 1;
+  }
   const char* original_var_ref = var_ref;
   char* san_var_ref = sanitize_remove_array_indexing(var_ref);
   var_ref = san_var_ref;
@@ -342,5 +373,34 @@ size_t token_get_actual_indices(const char* curr_var_ref, const char* comment_ty
   free(all_comment_indices);
   list_free(string_ranges);
   return num_comments;
+}
+
+char* token_get_preprocessor_macro(const char* var_ref) {
+  size_t macro_start = 1;
+  while (macro_start < strlen(var_ref) && isspace(var_ref[macro_start])) {
+    macro_start++;
+  }
+  while (macro_start < strlen(var_ref) &&
+         check_is_valid_varname_char(var_ref[macro_start])) {
+    macro_start++;
+  }
+  while (macro_start < strlen(var_ref) && isspace(var_ref[macro_start])) {
+    macro_start++;
+  }
+  assert(macro_start < strlen(var_ref) &&
+         "token_get_preprocessor_macro: directive has no macro");
+
+  size_t macro_len = strlen(var_ref) - macro_start;
+  char* macro = (char*) malloc(macro_len + 1);
+  size_t curr_macro_char = 0;
+  for (size_t i = macro_start; i < strlen(var_ref); i++) {
+    if (!isspace(var_ref[i])) {
+      macro[curr_macro_char] = var_ref[i];
+      curr_macro_char++;
+    }
+  }
+
+  macro[curr_macro_char] = '\0';
+  return macro;
 }
                                                               

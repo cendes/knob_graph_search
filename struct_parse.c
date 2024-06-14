@@ -30,14 +30,18 @@ char* struct_get_root_name(const char* var_name) {
     root_var_name[root_len] = '\0';
   }
 
-  char* original_root_var_name = root_var_name;
+  char* original_root_name = root_var_name;
+  root_var_name = sanitize_extract_varname(root_var_name);
+  utils_free_if_both_different(original_root_name, root_var_name, var_name);
+  original_root_name = root_var_name;
+  
   while(root_var_name[0] == '*' || root_var_name[0] == '&') {
     root_var_name++;
   }
-  if (original_root_var_name != root_var_name) {
+  if (original_root_name != root_var_name) {
     char* new_root_var_name = (char*) malloc(strlen(root_var_name) + 1);
     strncpy(new_root_var_name, root_var_name, strlen(root_var_name) + 1);
-    utils_free_if_different(original_root_var_name, var_name);
+    utils_free_if_different(original_root_name, var_name);
     root_var_name = new_root_var_name;
   }
 

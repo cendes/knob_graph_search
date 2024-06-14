@@ -2,6 +2,8 @@ digraph "/home/cendes/Documents/masters_thesis/ocloz/knob_graph_search/./ip_forw
 	 devinet_init_net -> _ROOT_
 	 sysctl_check_table -> _ROOT_
 	 __register_sysctl_table -> sysctl_check_table
+	 new_links -> _ROOT_
+	 insert_links -> new_links
 	 core_kernel_data -> _ROOT_
 	 ensure_safe_net_sysctl -> core_kernel_data
 	 BUG_ON -> _ROOT_
@@ -30,6 +32,8 @@ digraph "/home/cendes/Documents/masters_thesis/ocloz/knob_graph_search/./ip_forw
 	 DEVINET_SYSCTL_COMPLEX_ENTRY -> DEVINET_SYSCTL_ENTRY
 	 DEVINET_SYSCTL_RW_ENTRY -> DEVINET_SYSCTL_ENTRY
 	 devinet_init_net -> register_net_sysctl
+	 insert_header -> insert_links
+	 __register_sysctl_table -> insert_header
 	 register_net_sysctl -> __register_sysctl_table
 	 DEVINET_SYSCTL_FLUSHING_ENTRY -> DEVINET_SYSCTL_COMPLEX_ENTRY
 }
