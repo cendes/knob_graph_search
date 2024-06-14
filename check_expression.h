@@ -71,4 +71,6 @@ bool check_has_operand(const char* var_ref);
 
 bool check_is_struct(const char* var_ref);
 
+bool check_is_enum_declaration(const char* var_ref);
+
 #endif /* CHECK_EXPRESSION_H */

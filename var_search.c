@@ -47,6 +47,19 @@ static hash_map visited_funcs_ret = map_create();
 
 void start_knob_var_search(const char* var_name, struct list* struct_hierarchy);
 
+static char* extract_field_value(const char* table_entry, const char* field_name);
+
+static void start_knob_proc_handler_search(char** handler_decl_arr);
+
+static bool start_knob_table_search(const char* table_name, size_t table_index);
+
+static bool do_local_knob_table_search(const char* var_name, size_t table_index,
+                                char** table_ref_arr);
+
+static bool handle_table_entry_assignment(const char* var_ref, char** var_ref_arr,
+                                          const char* var_name, size_t table_index,
+                                          struct list** enum_list);
+
 static struct list* get_local_var_refs_from_src(struct list* var_refs,
                                                 const char* var_name,
                                                 const char* func_name,
@@ -113,7 +126,9 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "Could not find variable for knob %s\n", knob_name);
     return EXIT_SUCCESS;
   }
-  start_knob_var_search(var_name, struct_hierarchy);
+  if (strlen(var_name) > 0) {
+    start_knob_var_search(var_name, struct_hierarchy);
+  }
   
   char filename[4096];
   sprintf(filename, "%s/%s/partial_graph_%s.dot", cwd, output_dir, knob_name);
@@ -141,49 +156,313 @@ char* var_find_knob_var(const char* knob, struct list** struct_hierarchy) {
     
       char* file_path = result_arr[0];
       int line_num = atoi(result_arr[2]);
-      char* var_line = file_get_line(file_path, line_num + 1);
-      utils_free_str_arr(result_arr);
-      if (strstr(var_line, ".data") != NULL) {
-        size_t var_start = 0;
-        while (var_line[var_start] != '=') {
-          var_start++;
-        }
-        var_start++;
-        while (isspace(var_line[var_start])) {
-          var_start++;
-        }
+      char* table_name;
+      size_t entry_index;
+      char* table_entry = file_get_sysctl_table_entry(file_path, line_num,
+                                                      &table_name, &entry_index);
 
-        char* trimmed_var_name = utils_trim_str(var_line + var_start);
-        char* var_name = trimmed_var_name;
-        utils_truncate_str(var_name, -1);
-        if (strcmp(var_name, "NULL") != 0) {
-          if (var_name[0] == '&'){
-            var_name++;
-          }
-          if (var_name != trimmed_var_name) {
-            char* new_var_name = (char*) malloc(strlen(var_name) + 1);
-            strncpy(new_var_name, var_name, strlen(var_name) + 1);
-            utils_free_if_different(trimmed_var_name, var_line + var_start);
-            var_name = new_var_name;
-          }
-          printf("%s\n", var_name);
-          
-          char* root_var_name;
-          *struct_hierarchy = struct_get_struct_hierarchy(var_name, &root_var_name);
-          
-          utils_free_if_both_different(var_name, var_line + var_start, root_var_name);
-          //if (root_var_name == var_line_arr[1]) {
-          //  root_var_name = (char*) malloc(strlen(var_line_arr[1]) + 1);
-          //  strncpy(root_var_name, var_line_arr[1], strlen(var_line_arr[1]) + 1);
-          //}
-          //utils_free_str_arr(var_line_arr);
-          return root_var_name;
+      utils_free_str_arr(result_arr);
+      char* var_name = extract_field_value(table_entry, ".data");
+      if (var_name != NULL && strcmp(var_name, "NULL") != 0) {
+        free(table_entry);
+        char* original_var_name = var_name;
+        if (var_name[0] == '&'){
+          var_name++;
         }
+        if (var_name != original_var_name) {
+          char* new_var_name = (char*) malloc(strlen(var_name) + 1);
+          strncpy(new_var_name, var_name, strlen(var_name) + 1);
+          free(original_var_name);
+          var_name = new_var_name;
+        }
+        printf("%s\n", var_name);
+        
+        char* root_var_name;
+        *struct_hierarchy = struct_get_struct_hierarchy(var_name, &root_var_name);
+        
+        utils_free_if_different(var_name, root_var_name);
+        return root_var_name;
+      } else {
+        free(var_name);
+        char* proc_handler = extract_field_value(table_entry, ".proc_handler");
+        sprintf(cmd, "cscope -d -L1 %s", proc_handler);
+        struct list* handler_decls = utils_get_cscope_output(cmd);
+        for (struct list_node* curr_handler = handler_decls->head;
+             curr_handler != NULL; curr_handler = curr_handler->next) {
+          char* curr_decl = (char*) curr_handler->payload;
+          if (strstr(curr_decl, "kernel/sysctl.c") == curr_decl) {
+            list_free(handler_decls);
+            if (start_knob_table_search(table_name, entry_index)) {
+              return "";
+            } else {
+              return NULL;
+            }
+          }
+          char** curr_decl_arr;
+          utils_split_str(curr_decl, &curr_decl_arr);
+          if (strcmp(curr_decl_arr[0], "<global>") != 0) {
+            start_knob_proc_handler_search(curr_decl_arr);
+            return "";
+          } else {
+            utils_free_str_arr(curr_decl_arr);
+          }
+        }
+        list_free(handler_decls);
       }
     }
   }
 
   return NULL;
+}
+
+static char* extract_field_value(const char* table_entry, const char* field_name) {
+  const char* field = strstr(table_entry, field_name);
+  if (field == NULL) {
+    return NULL;
+  }
+
+  size_t val_start = 0;
+  while (field[val_start] != '=') {
+    val_start++;
+  }
+  val_start++;
+  while (isspace(field[val_start])) {
+    val_start++;
+  }
+  size_t val_end = val_start;
+  while (val_end < strlen(field) && field[val_end] != ',' && field[val_end] != ';') {
+    val_end++;
+  }
+  
+  size_t val_len = val_end - val_start;
+  char* val = (char*) malloc(val_len + 1);
+  strncpy(val, field + val_start, val_len);
+  val[val_len] = '\0';
+  return val;
+}
+
+static void start_knob_proc_handler_search(char** handler_decl_arr) {
+  const char* handler_name = handler_decl_arr[1];
+  const char* handler_src_file = handler_decl_arr[0];
+  size_t decl_line = atoi(handler_decl_arr[2]);
+  
+  struct list* global_var_refs;
+  struct list* var_refs = var_get_local_var_refs("buffer", handler_name,
+                                                 handler_src_file, decl_line,
+                                                 false, &global_var_refs);
+  assert(var_refs != NULL &&
+         "start_knob_proc_handler_search: local_variable must exist");
+
+  for (struct list_node* curr = var_refs->head; curr != NULL; curr = curr->next) {
+    char* var_ref = (char*) curr->payload;
+    char** var_ref_arr;
+    size_t var_ref_arr_len = utils_split_str(var_ref, &var_ref_arr);
+    char* full_var_ref =
+      file_get_multiline_expr(var_ref, (const char**) var_ref_arr, false);
+    var_ref = full_var_ref;
+
+    if (check_is_func(var_ref) && !check_is_var_declaration(handler_name, var_ref)) {
+      size_t table_var_start = strchr(var_ref, '(') - var_ref + 1;
+      if (var_ref[table_var_start] == '&') {
+        table_var_start++;
+      }
+      size_t table_var_end = table_var_start;
+      while(var_ref[table_var_end] != ',') {
+        table_var_end++;
+      }
+
+      size_t table_var_len = table_var_end - table_var_start;
+      char* table_var = (char*) malloc(table_var_len + 1);
+      strncpy(table_var, var_ref + table_var_start, table_var_len);
+      table_var[table_var_len] = '\0';
+
+      struct list* table_refs =
+        var_get_local_var_refs(table_var, handler_name, handler_src_file,
+                               decl_line, false, &global_var_refs);
+      assert(table_refs != NULL &&
+             "start_knob_proc_handler_search: local_variable must exist");
+
+      for (struct list_node* curr_table_ref = table_refs->head;
+           curr_table_ref != NULL; curr_table_ref = curr_table_ref->next) {
+        char* table_ref = (char*) curr_table_ref->payload;
+        char** table_ref_arr;
+        utils_split_str(table_ref, &table_ref_arr);
+        char* full_table_ref =
+          file_get_multiline_expr(table_ref, (const char**) table_ref_arr, false);
+
+        char* knob_var = extract_field_value(full_table_ref, ".data");
+        if (knob_var != NULL) {
+          if (knob_var[0] == '&') {
+            knob_var++;
+          }
+          char* root_var_name;
+          struct list* struct_hierarchy =
+            struct_get_struct_hierarchy(knob_var, &root_var_name);
+          
+          struct list* knob_var_refs =
+            var_get_local_var_refs(root_var_name, handler_name, handler_src_file,
+                                   decl_line, false, &global_var_refs);
+          assert(knob_var_refs != NULL &&
+                 "start_knob_proc_handler_search: local_variable must exist");
+          printf("Proc handler %s, Variable %s\n", handler_name, knob_var);
+          
+          struct func_var_entry* entry = var_create_func_var_entry(handler_name, root_var_name);
+          entry->var_refs = knob_var_refs;
+          struct list* tmp1;
+          struct list* tmp2;
+          var_get_func_refs(root_var_name, struct_hierarchy, knob_var_refs,
+                            handler_name, map_create(), true, &tmp1, &tmp2, NULL);
+          return;
+        }
+      }
+    }
+  }
+}
+
+static bool start_knob_table_search(const char* table_name, size_t table_index) {
+  char cmd[256];
+  sprintf(cmd, "cscope -d -L0 %s", table_name);
+  struct list* table_refs = utils_get_cscope_output(cmd);
+  struct list* enum_list = NULL;
+  for (struct list_node* curr_table_ref = table_refs->head;
+       curr_table_ref != NULL; curr_table_ref = curr_table_ref->next) {
+    char* table_ref = (char*) curr_table_ref->payload;
+    char** table_ref_arr;
+    size_t table_ref_arr_len = utils_split_str(table_ref, &table_ref_arr);
+    if (strcmp(table_ref_arr[1], "<global>") != 0) {
+      char* func_name = table_ref_arr[1];
+      char* full_table_ref =
+        file_get_multiline_expr(table_ref, (const char**) table_ref_arr, false);
+      table_ref = full_table_ref;
+      
+      char* func_call_name = token_find_func_name(table_ref);
+      bool is_return_assignment = func_call_name != NULL &&
+        strcmp(func_call_name, "kmemdup") == 0;
+      free(func_call_name);
+
+      const char* tmp1;
+      bool tmp2;
+      char* assigned_var = assignment_get_assignment_var(func_name, table_ref,
+                                                         (const char**) table_ref_arr,
+                                                         table_ref_arr_len,
+                                                         table_name,
+                                                         is_return_assignment,
+                                                         &tmp1, &tmp2);
+      if (assigned_var != NULL) {
+        if (do_local_knob_table_search(assigned_var, table_index, table_ref_arr)) {
+          return true;
+        }
+      } else {
+        if (handle_table_entry_assignment(table_ref, table_ref_arr, table_name,
+                                          table_index, &enum_list)) {
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
+static bool do_local_knob_table_search(const char* var_name, size_t table_index,
+                                char** table_ref_arr) {
+  char* func_name = table_ref_arr[1];
+  char* func_src_file = table_ref_arr[0];
+  size_t func_decl_line = atoi(table_ref_arr[2]);
+  struct list* enum_list = NULL;
+
+  struct list* global_var_refs;
+  struct list* var_refs = var_get_local_var_refs(var_name, func_name,
+                                                 func_src_file, func_decl_line,
+                                                 false, &global_var_refs);
+  assert(var_refs != NULL &&
+         "do_local_knob_table_search: local_variable must exist");
+  for (struct list_node* curr = var_refs->head; curr != NULL; curr = curr->next) {
+    char* var_ref = (char*) curr->payload;
+    char** var_ref_arr;
+    utils_split_str(var_ref, &var_ref_arr);
+    char* full_var_ref =
+      file_get_multiline_expr(var_ref, (const char**) var_ref_arr, false);
+    var_ref = full_var_ref;
+
+    if (handle_table_entry_assignment(var_ref, var_ref_arr, var_name,
+                                      table_index, &enum_list)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+static bool handle_table_entry_assignment(const char* var_ref, char** var_ref_arr,
+                                          const char* var_name, size_t table_index,
+                                          struct list** enum_list) {
+  const char* entry_assignment_ptr = strstr(var_ref, var_name);
+  if (token_get_eq_index(entry_assignment_ptr) > 0) {
+    const char* array_idx_ptr = entry_assignment_ptr + strlen(var_name);
+    while (isspace(*array_idx_ptr)) {
+      array_idx_ptr++;
+    }
+    if (*array_idx_ptr == '[') {
+      size_t idx_len = check_recur_with_parenthesis(array_idx_ptr + 1, 0, '[');
+      char* idx_str = (char*) malloc(idx_len + 1);
+      strncpy(idx_str, array_idx_ptr + 1, idx_len);
+      idx_str[idx_len] = '\0';
+
+      char* end_ptr;
+      ssize_t index_accessed = strtol(idx_str, &end_ptr, 0);
+      if (end_ptr < idx_str + strlen(idx_str)) {
+        if (strcmp(idx_str, "NF_SYSCTL_CT_PROTO_TCP_LIBERAL") == 0) {
+          int test = 1;
+        }
+        if (*enum_list == NULL) {
+          *enum_list = file_get_enum_list(idx_str);
+        }
+        index_accessed = list_find_str(*enum_list, idx_str);
+      }
+
+      if (index_accessed == table_index) {
+        char* knob_var = extract_field_value(var_ref, ".data");
+        if (knob_var != NULL) {
+          if (knob_var[0] == '&') {
+            knob_var++;
+          }
+        }
+
+        printf("%s\n", knob_var);
+        char* root_var_name;
+        struct list* struct_hierarchy = struct_get_struct_hierarchy(knob_var, &root_var_name);
+
+        char* func_name = var_ref_arr[1];
+        char* func_src_file = var_ref_arr[0];
+        struct list* global_var_refs;
+        struct list* local_var_refs =
+          var_get_local_var_refs(root_var_name, func_name, func_src_file,
+                                 -1, false, &global_var_refs);
+        if (local_var_refs == NULL) {
+          var_get_global_var_refs(root_var_name, struct_hierarchy,
+                                  global_var_refs, true);
+        } else {
+          struct func_var_entry* entry =
+            var_create_func_var_entry(func_name, root_var_name);
+          entry->var_refs = local_var_refs;
+
+          struct list* tmp1;
+          struct list* tmp2;
+          hash_map func_ret_map;
+          var_get_func_refs(root_var_name, struct_hierarchy, local_var_refs,
+                            func_name, map_create(), true, &tmp1, &tmp2,
+                            &func_ret_map);
+          handle_entry_point_return(func_ret_map, true);
+        }
+        
+        start_knob_var_search(root_var_name, struct_hierarchy);
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 void start_knob_var_search(const char* var_name, struct list* struct_hierarchy) {

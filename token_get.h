@@ -30,4 +30,6 @@ size_t token_get_actual_indices(const char* curr_var_ref, const char* comment_ty
 
 char* token_get_preprocessor_macro(const char* var_ref);
 
+char* token_get_sysctl_table_name(const char* var_ref, size_t* assignment_start);
+
 #endif /* TOKEN_GET_H */

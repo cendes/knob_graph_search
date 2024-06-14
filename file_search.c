@@ -68,7 +68,7 @@ static void merge_bracket_states(struct bracket_state* parent_state,
                                  size_t open_block_brackets,
                                  size_t open_assignment_brackets);
 
-static void pop_bracket_state(struct list* bracket_state_stack);
+static void free_bracket_state_tree(struct bracket_state* curr_state);
 
 static bool get_open_brackets(char* line, size_t* open_brackets);
 
@@ -243,8 +243,8 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
   size_t open_assignment_brackets = 0;
   size_t open_block_brackets = 0;
   bool prev_bracket_assign = false;
-  struct bracket_state* curr_bracket_state = create_bracket_state_root();
-  //struct bracket_state* curr_bracket_state = bracket_state_root;
+  struct bracket_state* bracket_state_root = create_bracket_state_root();
+  struct bracket_state* curr_bracket_state = bracket_state_root;
   bool is_else_state = false;
   size_t nested_if_0_levels = 0;
   size_t nested_asm_levels = 0;
@@ -277,7 +277,7 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
     if ((curr_line == line_number &&
          (nested_if_0_levels > 0 || nested_asm_levels > 0 || is_cond_directive)) ||
         check_is_preprocessor_macro(line, "define", "TRACE_SYSTEM")) {
-      //list_free(bracket_state_stack);
+      free_bracket_state_tree(bracket_state_root);
       utils_free_if_different(line, line_buf);
       free(line_buf);
       free(expr);
@@ -307,6 +307,7 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
         check_is_preprocessor_directive(line, "ifdef") ||
         check_is_preprocessor_directive(line, "ifndef")) {
       if (curr_line == line_number) {
+        free_bracket_state_tree(bracket_state_root);
         utils_free_if_different(line, line_buf);
         free(line_buf);
         free(expr);
@@ -327,6 +328,7 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
                check_is_preprocessor_directive(line, "elsif") ||
                check_is_preprocessor_directive(line, "endif")) {
       if (curr_line == line_number) {
+        free_bracket_state_tree(bracket_state_root);
         utils_free_if_different(line, line_buf);
         free(line_buf);
         free(expr);
@@ -512,6 +514,7 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
 
   //printf("Full expression: %s\n", expr);
   //list_free(bracket_state_stack);
+  free_bracket_state_tree(bracket_state_root);
   free(line_buf);
   fclose(f);
   
@@ -665,7 +668,7 @@ ssize_t file_get_func_end_line(const char* source_file, size_t func_start_line) 
     line = get_clean_line(&line_buf, f, &buf_size, &has_open_comment,
                           &nested_if_0_levels, &nested_asm_levels, &has_open_str);
     if (line == NULL) {
-      //list_free(bracket_state_stack);
+      free_bracket_state_tree(bracket_state_root);
       utils_free_if_different(line, line_buf);
       free(line_buf);
       fclose(f);
@@ -719,7 +722,7 @@ ssize_t file_get_func_end_line(const char* source_file, size_t func_start_line) 
     if (curr_line >= func_start_line) {
       bracket_found = get_open_brackets(line, &open_brackets) || bracket_found;
       if (!bracket_found && !is_macro && line[strlen(line) - 1] == ';') {
-        //list_free(bracket_state_stack);
+        free_bracket_state_tree(bracket_state_root);
         utils_free_if_different(line, line_buf);
         free(line_buf);
         fclose(f);
@@ -727,7 +730,7 @@ ssize_t file_get_func_end_line(const char* source_file, size_t func_start_line) 
       }
       if ((open_brackets == 0 && bracket_found && !is_macro) ||
           (is_macro && line[strlen(line) - 1] != '\\')) {
-        //list_free(bracket_state_stack);
+        free_bracket_state_tree(bracket_state_root);
         fclose(f);
         utils_free_if_different(line, line_buf);
         free(line_buf);
@@ -954,6 +957,19 @@ static void merge_bracket_states(struct bracket_state* parent_state,
   else_state->open_assignment_brackets_in = open_assignment_brackets;
 }
 
+static void free_bracket_state_tree(struct bracket_state* curr_state) {
+  struct list* children_list = map_get_key_list(curr_state->children);
+  for (struct list_node* curr = children_list->head; curr != NULL; curr = curr->next) {
+    char* child_label = (char*) curr->payload;
+    struct bracket_state* child_state =
+      (struct bracket_state*) map_get(curr_state->children, child_label);
+    free_bracket_state_tree(child_state);
+  }
+  list_free_nodes(children_list);
+  free(curr_state->label);
+  free(curr_state);
+}
+
 static bool get_open_brackets(char* line, size_t* open_brackets) {
   bool bracket_found = false;
 
@@ -1087,4 +1103,199 @@ char* file_get_line(const char* source_file, size_t line_number) {
   utils_free_if_different(line_buf, line);
   fclose(f);
   return line;
+}
+
+char* file_get_sysctl_table_entry(const char* source_file, size_t line_number,
+                                  char** table_name, size_t* entry_index) {
+  FILE* f = fopen(source_file, "r");
+  assert(f != NULL && "file_get_sysctl_table_entry: failed to open file");
+
+  size_t curr_line = 0;
+  char* line_buf = NULL;
+  char* line = NULL;
+  size_t nested_if_0_levels = 0;
+  size_t nested_asm_levels = 0;
+  bool has_open_comment = false;
+  bool has_open_str = false;
+  size_t open_brackets = 0;
+  bool in_table = false;
+  bool in_entry = false;
+  size_t buf_size = 0;
+  char* curr_table_entry = (char*) malloc(4096);
+  size_t curr_char = 0;
+  *table_name = NULL;
+  do {
+    curr_line++;
+    if (curr_line == 432) {
+      int tes = 1;
+    }
+    line = get_clean_line(&line_buf, f, &buf_size, &has_open_comment,
+                          &nested_if_0_levels, &nested_asm_levels, &has_open_str);
+    assert(line != NULL && "file_get_line: line cannot be NULL");
+    if (strlen(line) == 0 || line[0] == '#') {
+      utils_free_if_different(line, line_buf);
+      continue;
+    }
+
+    size_t curr_line_index = 0;
+    if (*table_name == NULL) {
+      size_t assignment_start;
+      *table_name = token_get_sysctl_table_name(line, &assignment_start);
+      if (*table_name != NULL) {
+        curr_line_index = assignment_start + 1;
+        curr_table_entry[0] = '\0';
+        *entry_index = 0;
+        curr_char = 0;
+      }
+    }
+
+    if (*table_name != NULL) {
+      if (open_brackets < 2) {
+        for (size_t i = curr_line_index; i < strlen(line); i++) {
+          if (line[i] == '{') {
+            if (open_brackets == 1) {
+              size_t entry_start = i + 1;
+              size_t entry_end = check_recur_with_parenthesis(line, entry_start , '{');
+              if (entry_end >= strlen(line)) {
+                in_entry = true;
+                entry_end = strlen(line);
+                size_t num_to_copy = entry_end - entry_start;
+                strncpy(curr_table_entry, line + entry_start, num_to_copy);
+                curr_table_entry[num_to_copy] = '\0';
+                curr_char = num_to_copy;
+                open_brackets++;
+              } else {
+                (*entry_index)++;
+                curr_line_index = entry_end + 1;
+              }
+              i = entry_end;
+            } else {
+              in_table = true;
+              open_brackets++;
+              curr_line_index = i + 1;
+            }
+          } else if (line[i] == '}') {
+            open_brackets--;
+            break;
+          }
+        }
+      } else {
+        char* close_bracket_ptr = strchr(line, '}');
+        size_t num_to_copy;
+        if (close_bracket_ptr == NULL) {
+          num_to_copy = strlen(line);
+        } else {
+          num_to_copy = close_bracket_ptr - line;
+          open_brackets--;
+        }
+        if (num_to_copy > 0) {
+          curr_table_entry[curr_char] = ' ';
+          curr_char++;
+          strncpy(curr_table_entry + curr_char, line, num_to_copy);
+          curr_char += num_to_copy;
+          curr_table_entry[curr_char] = '\0';
+        }
+      }
+
+      if (open_brackets < 2 && in_table) {
+        if (curr_line >= line_number) {
+          fclose(f);
+          utils_free_if_different(line, line_buf);
+          free(line_buf);
+          return curr_table_entry;
+        } else {
+          curr_table_entry[0] = '\0';
+          curr_char = 0;
+          if (open_brackets == 0) {
+            *entry_index = 0;
+            free(*table_name);
+            *table_name = NULL;
+            in_table = false;
+          } else if (in_entry) {
+            (*entry_index)++;
+            in_entry = false;
+          }
+        }
+      }
+      
+    }
+    utils_free_if_different(line, line_buf);
+  } while (line != NULL);
+
+  assert(false && "file_get_sysctl_table_entry: reached unreachable point");
+  return NULL;
+}
+
+struct list* file_get_enum_list(const char* enum_name) {
+  char cmd[256];
+  sprintf(cmd, "cscope -d -L1 %s", enum_name);
+  struct list* results = utils_get_cscope_output(cmd);
+  char* result = (char*) results->head->payload;
+  list_free_nodes(results);
+
+  char** result_arr;
+  utils_split_str(result, &result_arr);
+  char* source_file = result_arr[0];
+  size_t line_number = atoi(result_arr[2]);
+
+  FILE* f = fopen(source_file, "r");
+  assert(f != NULL && "file_get_enum_list: failed to open file");
+
+  size_t curr_line = 0;
+  char* line_buf = NULL;
+  char* line = NULL;
+  size_t nested_if_0_levels = 0;
+  size_t nested_asm_levels = 0;
+  bool has_open_comment = false;
+  bool has_open_str = false;
+  size_t buf_size = 0;
+  bool in_enum = false;
+  bool enum_found = false;
+  struct list* enum_list = list_create();
+  do {
+    curr_line++;
+    if (curr_line == 553) {
+      int tes = 1;
+    }
+    line = get_clean_line(&line_buf, f, &buf_size, &has_open_comment,
+                          &nested_if_0_levels, &nested_asm_levels, &has_open_str);
+    assert(line != NULL && "file_get_enum_list: line cannot be NULL");
+    if (strlen(line) == 0 || line[0] == '#') {
+      utils_free_if_different(line, line_buf);
+      continue;
+    }
+    
+    if (check_is_enum_declaration(line)) {
+      in_enum = true;
+      enum_found = true;
+    } else if (in_enum) {
+      if (strchr(line, '}') != NULL) {
+        in_enum = false;
+      } else {
+        char* comma_ptr = strchr(line, ',');
+        if (comma_ptr != NULL) {
+          *comma_ptr = '\0';
+        }
+        char* enum_name = (char*) malloc(strlen(line) + 1);
+        strncpy(enum_name, line, strlen(line) + 1);
+        list_append(enum_list, enum_name);
+      }
+    }
+
+    if (!in_enum) {
+      if (curr_line >= line_number) {
+        fclose(f);
+        utils_free_if_different(line, line_buf);
+        free(line_buf);
+        return enum_list;
+      } else if (enum_found) {
+        list_free(enum_list);
+        enum_list = list_create();
+      }
+    }
+    
+  } while (line != NULL);
+
+  assert(false && "file_get_enum_list: reached unreachable point");
+  return NULL;
 }

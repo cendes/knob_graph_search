@@ -403,4 +403,72 @@ char* token_get_preprocessor_macro(const char* var_ref) {
   macro[curr_macro_char] = '\0';
   return macro;
 }
+
+char* token_get_sysctl_table_name(const char* var_ref, size_t* assignment_start) {
+  size_t* struct_keywords;
+  size_t num_struct_keywords = utils_get_str_occurences(var_ref, "struct",
+                                                        &struct_keywords);
+  for (size_t i = 0; i < num_struct_keywords; i++) {
+    if (check_is_token_match(var_ref, struct_keywords[i], strlen("struct"))) {
+      size_t type_start = struct_keywords[i] + strlen("struct");
+      while (type_start < strlen(var_ref) && isspace(var_ref[type_start])) {
+        type_start++;
+      }
+      size_t type_end = type_start;
+      while (type_end < strlen(var_ref) &&
+             check_is_valid_varname_char(var_ref[type_end])) {
+        type_end++;
+      }
+
+      if (type_end < strlen(var_ref)) {
+        size_t token_len = type_end - type_start;
+        char* type_token = (char*) malloc(token_len + 1);
+        strncpy(type_token, var_ref + type_start, token_len);
+        type_token[token_len] = '\0';
+        if (strcmp(type_token, "ctl_table") == 0) {
+          size_t name_start = type_end + 1;
+          while (name_start < strlen(var_ref) && isspace(var_ref[name_start])) {
+            name_start++;
+          }
+          size_t name_end = name_start;
+          while (name_end < strlen(var_ref) &&
+                 check_is_valid_varname_char(var_ref[name_end])) {
+            name_end++;
+          }
+
+          if (name_end < strlen(var_ref)) {
+            size_t name_len = name_end - name_start;
+            char* table_name = (char*) malloc(name_len + 1);
+            strncpy(table_name, var_ref + name_start, name_len);
+            table_name[name_len] = '\0';
+
+            size_t bracket_start = name_end;
+            while (bracket_start < strlen(var_ref) && var_ref[bracket_start] != '[') {
+              bracket_start++;
+            }
+            size_t bracket_end = check_recur_with_parenthesis(var_ref, bracket_start + 1, '[');
+            if (bracket_end < strlen(var_ref)) {
+              size_t eq_index = bracket_end + 1;
+              while (eq_index < strlen(var_ref) && isspace(var_ref[eq_index])) {
+                eq_index++;
+              }
+              if (eq_index < strlen(var_ref) &&
+                  check_is_assignment_op(var_ref, eq_index)) {
+                free(struct_keywords);
+                free(type_token);
+                *assignment_start = eq_index;
+                return table_name;
+              }
+            }
+            free(table_name);
+          }
+        }
+        free(type_token);
+      }
+    }
+  }
+
+  free(struct_keywords);
+  return NULL;
+}
                                                               

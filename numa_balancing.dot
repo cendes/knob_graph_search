@@ -1,0 +1,23 @@
+digraph "/home/cendes/Documents/masters_thesis/ocloz/knob_graph_search/./numa_balancing.dot" {
+	 set_numabalancing_state -> _ROOT_
+	 sysctl_numa_balancing -> set_numabalancing_state
+	 do_proc_dointvec -> _ROOT_
+	 proc_dointvec_minmax -> do_proc_dointvec
+	 __read_once_size -> _ROOT_
+	 READ_ONCE -> __read_once_size
+	 READ_ONCE -> _ROOT_
+	 do_proc_dointvec_conv -> READ_ONCE
+	 __write_once_size -> _ROOT_
+	 WRITE_ONCE -> __write_once_size
+	 WRITE_ONCE -> _ROOT_
+	 do_proc_dointvec_minmax_conv -> WRITE_ONCE
+	 do_proc_dointvec_conv -> WRITE_ONCE
+	 do_proc_dointvec_conv -> _ROOT_
+	 do_proc_dointvec_minmax_conv -> do_proc_dointvec_conv
+	 do_proc_dointvec_minmax_conv -> _ROOT_
+	 __do_proc_dointvec -> do_proc_dointvec_minmax_conv
+	 __do_proc_dointvec -> _ROOT_
+	 do_proc_dointvec -> __do_proc_dointvec
+	 sysctl_numa_balancing -> _ROOT_
+	 sysctl_numa_balancing -> proc_dointvec_minmax
+}

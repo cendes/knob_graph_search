@@ -13,4 +13,9 @@ char* file_find_struct_name(const char* source_file, size_t line_number);
 
 char* file_get_line(const char* source_file, size_t line_number);
 
+char* file_get_sysctl_table_entry(const char* source_file, size_t line_number,
+                                  char** table_name, size_t* entry_index);
+
+struct list* file_get_enum_list(const char* enum_name);
+
 #endif /* FILE_SEARCH_H */

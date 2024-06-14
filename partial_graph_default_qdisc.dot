@@ -1,0 +1,13 @@
+digraph "/home/cendes/Documents/masters_thesis/ocloz/knob_graph_search/./partial_graph_default_qdisc.dot" {
+	 strcmp -> _ROOT_
+	 qdisc_lookup_default -> strcmp
+	 qdisc_lookup_default -> _ROOT_
+	 qdisc_set_default -> qdisc_lookup_default
+	 qdisc_set_default -> _ROOT_
+	 set_default_qdisc -> qdisc_set_default
+	 strlcpy -> _ROOT_
+	 qdisc_get_default -> strlcpy
+	 qdisc_get_default -> _ROOT_
+	 set_default_qdisc -> qdisc_get_default
+	 set_default_qdisc -> _ROOT_
+}

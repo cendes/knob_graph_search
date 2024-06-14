@@ -812,3 +812,25 @@ bool check_has_operand(const char* var_ref) {
 bool check_is_struct(const char* var_ref) {
   return has_token_match(var_ref, "struct") || has_token_match(var_ref, "union");
 }
+
+bool check_is_enum_declaration(const char* var_ref) {
+  size_t* enum_keywords;
+  size_t num_enums = utils_get_str_occurences(var_ref, "enum", &enum_keywords);
+  for (size_t i = 0; i < num_enums; i++) {
+    if (check_is_token_match(var_ref, enum_keywords[i], strlen("enum"))) {
+      size_t curr_idx = enum_keywords[i] + strlen("enum");
+      while (curr_idx < strlen(var_ref) &&
+             (isspace(var_ref[curr_idx]) ||
+              check_is_valid_varname_char(var_ref[curr_idx]))) {
+        curr_idx++;
+      }
+      if (curr_idx < strlen(var_ref) && var_ref[curr_idx] == '{') {
+        free(enum_keywords);
+        return true;
+      }
+    }
+  }
+
+  free(enum_keywords);
+  return false;
+}
