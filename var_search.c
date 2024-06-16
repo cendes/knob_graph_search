@@ -25,6 +25,7 @@
 //TODO: add function source file to func vars visited
 //TODO: add source file to function pointers passed map
 //TODO: include __ASSEMBLY__ in the search, but remove files with assembly macros
+//TODO: handle knob searching for nr_hugepages and nr_hugepages_mempolicy
 
 struct func_ret_entry {
   struct list* return_hierarchy;
@@ -178,6 +179,9 @@ char* var_find_knob_var(const char* knob, struct list** struct_hierarchy) {
       } else {
         free(var_name);
         char* proc_handler = extract_field_value(table_entry, ".proc_handler");
+        if (proc_handler[0] == '&') {
+          proc_handler++;
+        }
         sprintf(cmd, "cscope -d -L1 %s", proc_handler);
         struct list* handler_decls = utils_get_cscope_output(cmd);
         for (struct list_node* curr_handler = handler_decls->head;

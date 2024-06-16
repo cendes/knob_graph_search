@@ -1045,6 +1045,12 @@ struct list* func_get_func_args_name(const char* func_name,
       if (check_is_func_ptr(san_arg_declaration)) {
         arg_name = token_get_func_ptr_name(san_arg_declaration);
       } else {
+        if (strcmp(san_arg_declaration, "const struct nlattr *a[OVS_KEY_ATTR_MAX + 1]") == 0) {
+          int test = 1;
+        }
+        char* clean_arg_declaration = sanitize_remove_array_indexing(san_arg_declaration);
+        //utils_free_if_different(san_arg_declaration, clean_arg_declaration);
+        san_arg_declaration = clean_arg_declaration;
         char** arg_declaration_arr;
         size_t num_tokens = utils_split_str(san_arg_declaration, &arg_declaration_arr);
         if (strcmp(func_name, "fib_nl2rule") == 0) {

@@ -1,0 +1,3 @@
+digraph "/home/cendes/Documents/masters_thesis/ocloz/knob_graph_search/./partial_graph_max_lock_depth.dot" {
+	 rt_mutex_adjust_prio_chain -> _ROOT_
+}
