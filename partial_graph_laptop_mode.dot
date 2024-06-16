@@ -1,0 +1,20 @@
+digraph "/home/cendes/Documents/masters_thesis/ocloz/knob_graph_search/./partial_graph_laptop_mode.dot" {
+	 shrink_page_list -> _ROOT_
+	 shrink_inactive_list -> shrink_page_list
+	 balance_pgdat -> _ROOT_
+	 try_to_free_mem_cgroup_pages -> _ROOT_
+	 mem_cgroup_shrink_node -> _ROOT_
+	 try_to_free_pages -> _ROOT_
+	 balance_dirty_pages -> _ROOT_
+	 xfs_fs_sync_fs -> _ROOT_
+	 ksys_sync -> _ROOT_
+	 unlikely -> _ROOT_
+	 ksys_sync -> unlikely
+	 blk_mq_free_request -> _ROOT_
+	 shrink_list -> shrink_inactive_list
+	 shrink_lruvec -> shrink_list
+	 shrink_node_memcgs -> shrink_lruvec
+	 shrink_node -> shrink_node_memcgs
+	 kswapd_shrink_node -> shrink_node
+	 balance_pgdat -> kswapd_shrink_node
+}

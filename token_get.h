@@ -32,4 +32,6 @@ char* token_get_preprocessor_macro(const char* var_ref);
 
 char* token_get_sysctl_table_name(const char* var_ref, size_t* assignment_start);
 
+const char* token_get_func_call(const char* var_ref, const char* curr_func);
+
 #endif /* TOKEN_GET_H */

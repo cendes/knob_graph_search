@@ -1,4 +1,5 @@
 #include <string.h>
+#include <ctype.h>
 #include "list.h"
 #include "utils.h"
 #include "check_expression.h"
@@ -35,7 +36,8 @@ char* struct_get_root_name(const char* var_name) {
   utils_free_if_both_different(original_root_name, root_var_name, var_name);
   original_root_name = root_var_name;
   
-  while(root_var_name[0] == '*' || root_var_name[0] == '&') {
+  while(root_var_name[0] == '*' || root_var_name[0] == '&' ||
+        root_var_name[0] == '(') {
     root_var_name++;
   }
   if (original_root_name != root_var_name) {
@@ -51,7 +53,7 @@ char* struct_get_root_name(const char* var_name) {
 struct list* struct_get_struct_hierarchy(const char* var_name, char** root_name) {
   *root_name = struct_get_root_name(var_name);
   struct list* hierarchy = list_create();
-  size_t curr_index = strlen(*root_name);
+  size_t curr_index = (strstr(var_name, *root_name) + strlen(*root_name)) - var_name;
   if (var_name[curr_index] == '[') {
     curr_index = check_recur_with_parenthesis(var_name, curr_index + 1, '[');
     curr_index++;
@@ -63,6 +65,10 @@ struct list* struct_get_struct_hierarchy(const char* var_name, char** root_name)
     char* segment;
     curr_index = get_struct_segment(var_name, curr_index, &segment);
     list_append(hierarchy, segment);
+    while (isspace(var_name[curr_index]) || var_name[curr_index] == '(' ||
+           var_name[curr_index] == ')') {
+      curr_index++;
+    }
   }
 
   return hierarchy;

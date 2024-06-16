@@ -1,0 +1,7 @@
+digraph "/home/cendes/Documents/masters_thesis/ocloz/knob_graph_search/./partial_graph_ftrace_enabled.dot" {
+	 machine_kexec -> _ROOT_
+	 __ftrace_enabled_restore -> _ROOT_
+	 machine_kexec -> __ftrace_enabled_restore
+	 __ftrace_enabled_save -> _ROOT_
+	 tracer_disable -> _ROOT_
+}

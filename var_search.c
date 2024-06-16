@@ -20,18 +20,11 @@
 #include "expand_call_graph.h"
 
 
-//TODO: optimize reading of multiline by saving multiline expression
 //TODO: handle weird dereference cases (pointer arithmetic and struct)
 //TODO: properly handle function pointers
-//TODO: Eliminate references to array index
-//TODO: handle assignments to array or struct litxerals
-//TODO: Properly handle removing casts
-//TODO: Properly handle ternary operators in assigments and arguments (generate new expressions)
-//TODO: handle function pointers in func variables visited cache
-//TODO: create tree database for already visited func variables with different struct hierarchy
-//TODO: for returns, check if expression is boolean
-
-// TODO: SOLVE ALREADY INSERTED ROOT BUG
+//TODO: add function source file to func vars visited
+//TODO: add source file to function pointers passed map
+//TODO: include __ASSEMBLY__ in the search, but remove files with assembly macros
 
 struct func_ret_entry {
   struct list* return_hierarchy;
@@ -292,6 +285,11 @@ static void start_knob_proc_handler_search(char** handler_decl_arr) {
 
         char* knob_var = extract_field_value(full_table_ref, ".data");
         if (knob_var != NULL) {
+          if (check_is_func(full_table_ref)) {
+            free(knob_var);
+            knob_var = (char*) malloc(strlen(table_var) + strlen(".data") + 1);
+            sprintf(knob_var, "%s.data", table_var);
+          }
           if (knob_var[0] == '&') {
             knob_var++;
           }
@@ -622,10 +620,11 @@ bool var_get_func_refs(const char* var_name, struct list* struct_hierarchy,
       struct list* return_hierarchy;
       struct list* call_return_hierarchy;
       bool has_func_call;
-      if (check_is_func(var_ref) && !check_is_var_declaration(func_name, var_ref)) {
+      const char* func_call_ref = token_get_func_call(var_ref, func_name);
+      if (func_call_ref != NULL) {
         has_func_call = true;
         has_match |= func_handle_func_call(var_name, struct_hierarchy,
-                                           var_ref, var_ref_arr,
+                                           func_call_ref, var_ref_arr,
                                            var_ref_arr_len, func_name,
                                            func_ptrs, record_match,
                                            &return_hierarchy,

@@ -6,6 +6,8 @@ digraph "/home/cendes/Documents/masters_thesis/ocloz/knob_graph_search/./partial
 	 insert_links -> new_links
 	 core_kernel_data -> _ROOT_
 	 ensure_safe_net_sysctl -> core_kernel_data
+	 assert -> _ROOT_
+	 BUG_ON -> assert
 	 BUG_ON -> _ROOT_
 	 __module_address -> BUG_ON
 	 within_module_init -> _ROOT_

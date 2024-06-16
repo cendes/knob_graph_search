@@ -57,6 +57,9 @@ static void get_callers_in_refs(struct call_graph* graph, const char* func_name,
       utils_str_in_array(FUNCS_TO_IGNORE, func_name, UTILS_SIZEOF_ARR(FUNCS_TO_IGNORE))) {
     return;
   }
+  if (strcmp(func_name, "SYSCALL_DEFINE3") == 0) {
+    int test = 1;
+  }
   for (struct list_node* curr_ref = func_refs->head; curr_ref != NULL; curr_ref = curr_ref->next) {
     char* func_ref = (char*) curr_ref->payload;
     char** func_ref_arr;

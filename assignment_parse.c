@@ -31,7 +31,7 @@ bool assignment_handle_var_assignment(const char* func_name,
                                       bool record_match,
                                       struct list** return_hierarchy,
                                       struct list** output_args) { 
-  if (strcmp(var_ref, "net/xfrm/xfrm_policy.c xfrm_bundle_lookup 2954 pols[0] = xfrm_policy_lookup(net, fl, family, dir, if_id);") == 0) {
+  if (strcmp(var_ref, "((struct seq_file *)file->private_data)->private = data;") == 0) {
     int test = 1;
   }
   bool out_arg_assignment;

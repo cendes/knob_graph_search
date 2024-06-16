@@ -219,7 +219,7 @@ static void verify_multiline_var_ref(const char* multiline_var_ref,
 }
 
 static char* get_full_expr(const char* source_file, size_t line_number) {
-  if (strcmp(source_file, "arch/x86/kernel/cpu/common.c") == 0) {
+  if (strcmp(source_file, "fs/ubifs/super.c") == 0) {
     int test = 1;
   }
   if (strcmp(source_file, "security/tomoyo/group.c") == 0) {
@@ -259,7 +259,7 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
   size_t buf_size = 0;
   char* line;
   do {
-    if (curr_line == 125) {
+    if (curr_line == 1322) {
       int test = 1;
     }
     curr_line++;
@@ -288,7 +288,12 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
     if (strlen(line) == 0) {
       is_cond_directive = false;
       utils_free_if_different(line, line_buf);
-      continue;
+      if (curr_line >= line_number && prev_define) {
+        int test = 1;
+        break;
+      } else {
+        continue;
+      }
     }
     
     char* original_line = line;
@@ -465,16 +470,18 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
       curr_idx += strlen(line);
       expr[curr_idx] = '\0';
     }
-    if (line[last] == ';' && open_assignment_brackets != 0) {
+    if (!is_in_macro && prev_define && !curr_define) {
       int test = 1;
     }
 
-    if ((line[last] == ';' && open_assignment_brackets == 0) || line[last] == '}' ||
+    if ((line[last] == ';' && open_assignment_brackets == 0 &&
+         !check_has_mismatched_parenthesis(expr)) ||
+        line[last] == '}' ||
         (line[last] == ':' && strchr(expr, '?') == NULL && !check_is_asm_block(expr)) ||
         (line[last] == '{' && open_assignment_brackets == 0) ||
         (expr[0] == '.' && expr[last] == ',' && open_assignment_brackets == 0 &&
          !check_has_mismatched_parenthesis(expr)) ||
-        (prev_define && !curr_define) ||
+        (is_in_macro && prev_define && !curr_define) ||
         (expr[0] == '#' && !check_has_mismatched_parenthesis(expr)) ||
         (check_is_control_flow_expr(expr) &&
          !check_has_mismatched_parenthesis(expr)) ||
