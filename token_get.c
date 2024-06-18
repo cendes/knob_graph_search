@@ -144,7 +144,8 @@ char* token_get_func_ptr_name(const char* func_ptr_declaration) {
 }
 
 void token_insert_macro_return_entry(const char* macro_name, const char* src_file,
-                                     size_t return_start, size_t return_end) {
+                                     size_t return_start, size_t return_end,
+                                     bool write_to_disk) {
   hash_map src_file_map;
   if (map_contains(macro_return_ranges, macro_name)) {
     src_file_map = (hash_map) map_get(macro_return_ranges, macro_name);
@@ -159,7 +160,9 @@ void token_insert_macro_return_entry(const char* macro_name, const char* src_fil
     entry->return_start = return_start;
     entry->return_end = return_end;
     map_insert(src_file_map, src_file, entry);
-    database_write_macros_return_range(macro_name, src_file, return_start, return_end);
+    if (write_to_disk) {
+      database_write_macros_return_range(macro_name, src_file, return_start, return_end);
+    }
   }
 }
 
@@ -473,32 +476,32 @@ char* token_get_sysctl_table_name(const char* var_ref, size_t* assignment_start)
 }
 
 const char* token_get_func_call(const char* var_ref, const char* curr_func) {
-  if (check_is_func(var_ref)) {
-    if (!check_is_var_declaration(curr_func, var_ref)) {
-      return var_ref;
-    } else {
-      const char* curr_var_ref = var_ref;
-      size_t* args_start_indices;
-      size_t num_start_indices = utils_get_char_occurences(var_ref, '(',
-                                                           &args_start_indices);
-      for (size_t i = 0; i < num_start_indices; i++) {
-        char* func_name = token_get_func_name(var_ref, args_start_indices[i]);
-        if (func_name != NULL) {
-          if (strcmp(func_name, curr_func) == 0) {
-            free(func_name);
-            size_t decl_end =
-              check_recur_with_parenthesis(var_ref, args_start_indices[i] + 1, '(');
-            curr_var_ref += (decl_end + 1);
-          } else {
-            free(func_name);
-            free(args_start_indices);
-            return curr_var_ref;
-          }
+  //if (check_is_func(var_ref)) {
+  if (!check_is_var_declaration(curr_func, var_ref)) {
+    return var_ref;
+  } else {
+    const char* curr_var_ref = var_ref;
+    size_t* args_start_indices;
+    size_t num_start_indices = utils_get_char_occurences(var_ref, '(',
+                                                         &args_start_indices);
+    for (size_t i = 0; i < num_start_indices; i++) {
+      char* func_name = token_get_func_name(var_ref, args_start_indices[i]);
+      if (func_name != NULL) {
+        if (strcmp(func_name, curr_func) == 0) {
+          free(func_name);
+          size_t decl_end =
+            check_recur_with_parenthesis(var_ref, args_start_indices[i] + 1, '(');
+          curr_var_ref += (decl_end + 1);
+        } else {
+          free(func_name);
+          free(args_start_indices);
+          return curr_var_ref;
         }
       }
-      free(args_start_indices);
     }
+    free(args_start_indices);
   }
+    //}
 
   return NULL;
 }

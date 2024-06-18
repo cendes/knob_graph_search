@@ -152,7 +152,7 @@ bool func_handle_func_call(const char* var_name,
                            struct list** return_struct_hierarchy,
                            struct list** output_vars,
                            struct list** call_return_hierarchy) {
-  if (strcmp(var_ref, "set_page_private(virt_to_page(sp->spt), (unsigned long)sp);") == 0) {
+  if (strcmp(var_ref, "WARN_ON(inet_sk(sk)->inet_num && !inet_csk(sk)->icsk_bind_hash);") == 0) {
     int test = 1;
   }
   if (strcmp(func_name, "jffs2_garbage_collect_thread") == 0) {
@@ -206,7 +206,7 @@ bool func_handle_func_call(const char* var_name,
     // TODO: check functions visited cache
     if (strcmp(func_call, "memcpy") == 0) {
       if (list_contains_val(args_indices, 1)) {
-        if (strcmp(var_ref, "memcpy(nla_data(a), data, len);") == 0) {
+        if (strcmp(var_ref, "memcpy(TLV_DATA(tlv), data, len);") == 0) {
           int test = 1;
         }
         struct list* src_struct_hierarchy;
@@ -240,7 +240,7 @@ bool func_handle_func_call(const char* var_name,
                strcmp(func_call, "__kfree_skb") != 0 && strcmp(func_call, "__cache_free") != 0 &&
                strcmp(func_call,  "__list_add") != 0 && strcmp(func_call, "validate_xmit_skb") != 0 &&
                strcmp(func_call, "submit_bio") != 0 && strcmp(func_call, "jffs2_garbage_collect_thread") != 0 &&
-               strstr(func_call, "kasan_") == NULL) {
+               strcmp(func_call, "EMIT") != 0 && strstr(func_call, "kasan_") == NULL) {
       struct list* func_arg_names;
       struct list* func_ptr_args;
       const char* func_declaration;
@@ -433,28 +433,35 @@ bool func_handle_func_call(const char* var_name,
             if (func_idx >= 0) {
               struct list* super_func_args =
                 (struct list*) list_get(var_args_indices, func_idx);
-              list_append(super_func_args, (void*) arg_idx);
-              //struct list_node* curr_segment = struct_hierarchy->head;
-              //struct list_node* prev_segment = NULL;
-              //struct list_node* return_segment = curr_call_return_hierarchy->head;
-              //while (curr_segment != NULL && return_segment != NULL &&
-              //       strcmp((char*) curr_segment->payload,
-              //              (char*) return_segment->payload) == 0) {
-              //  curr_segment = curr_segment->next;
-              //  prev_segment = curr_segment;
-              //  return_segment = return_segment->next;
-              //}
-              //struct list_node* struct_match;
-              //if (struct_hierarchy->len == curr_call_return_hierarchy->len) {
-              //  struct_match = NULL;
-              //} else {
-              //  struct_match =
-              //    list_get_node(struct_hierarchy,
-              //             struct_hierarchy->len - curr_call_return_hierarchy->len - 1);
-              //}
-              struct list* super_args_hierarchies =
-                (struct list*) list_get(func_args_hierarchies, func_idx);
-              list_append(super_args_hierarchies, curr_call_return_hierarchy);
+              struct list* super_func_args_ranges =
+                (struct list*) list_get(args_range, func_idx);
+              if (super_func_args->len >= super_func_args_ranges->len) {
+                int test = 1;
+              }
+              if (super_func_args->len < super_func_args_ranges->len) {
+                list_append(super_func_args, (void*) arg_idx);
+                //struct list_node* curr_segment = struct_hierarchy->head;
+                //struct list_node* prev_segment = NULL;
+                //struct list_node* return_segment = curr_call_return_hierarchy->head;
+                //while (curr_segment != NULL && return_segment != NULL &&
+                //       strcmp((char*) curr_segment->payload,
+                //              (char*) return_segment->payload) == 0) {
+                //  curr_segment = curr_segment->next;
+                //  prev_segment = curr_segment;
+                //  return_segment = return_segment->next;
+                //}
+                //struct list_node* struct_match;
+                //if (struct_hierarchy->len == curr_call_return_hierarchy->len) {
+                //  struct_match = NULL;
+                //} else {
+                //  struct_match =
+                //    list_get_node(struct_hierarchy,
+                //             struct_hierarchy->len - curr_call_return_hierarchy->len - 1);
+                //}
+                struct list* super_args_hierarchies =
+                  (struct list*) list_get(func_args_hierarchies, func_idx);
+                list_append(super_args_hierarchies, curr_call_return_hierarchy);
+              }
             } else if (*call_return_hierarchy == NULL ||
                        curr_call_return_hierarchy->len < (*call_return_hierarchy)->len) {
               *call_return_hierarchy = curr_call_return_hierarchy;
@@ -934,7 +941,7 @@ static struct list* get_func_declarations(const char* func_name,
   sprintf(cmd, "cscope -d -L0 %s", func_name);
   struct list* func_refs = utils_get_cscope_output(cmd);
 
-  if (strcmp(func_name, "per_cpu") == 0) {
+  if (strcmp(func_name, "TLV_DATA") == 0) {
     int test = 1;
   }
 
@@ -969,11 +976,15 @@ static struct list* get_func_declarations(const char* func_name,
         check_is_var_declaration(func_name, func_ref) &&
         check_is_func_decl_in_scope(func_ref, func_ref_arr[0], ref_src_file)) {
       free(declaration_name);
-      if (check_is_extern(func_ref)) {
+      bool is_same_src = strcmp(ref_src_file, func_ref_arr[0]) == 0;
+      if (is_same_src) {
+        int test = 1;
+      }
+      if (check_is_extern(func_ref) && !is_same_src) {
         list_append(extern_declarations, full_func_ref);
         list_append(extern_declarations_arr, func_ref_arr);
         list_append(extern_declarations_arr_len, (void*) func_ref_arr_len);
-      } else if (strstr(func_ref_arr[0], ".h")) {
+      } else if (strstr(func_ref_arr[0], ".h") && !is_same_src) {
         list_append(header_declarations, full_func_ref);
         list_append(header_declarations_arr, func_ref_arr);
         list_append(header_declarations_arr_len, (void*) func_ref_arr_len);

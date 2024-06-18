@@ -63,8 +63,8 @@ static struct list* get_local_var_refs_from_src(struct list* var_refs,
 
 static bool get_local_ref(const char* var_name, const char* var_ref,
                           const char** var_ref_arr, const char* func_name,
-                          bool is_local_var, struct list* local_var_refs,
-                          size_t* num_invalid_refs);
+                          bool is_local_var, bool is_first_ref,
+                          struct list* local_var_refs, size_t* num_invalid_refs);
 
 static void handle_entry_point_return(hash_map func_ret_map, bool record_match);
 
@@ -604,7 +604,7 @@ bool var_get_func_refs(const char* var_name, struct list* struct_hierarchy,
       int test = 1;
     }
 
-    if (strstr(var_ref, "include/linux/user-return-notifier.h clear_user_return_notifier 46 static inline void clear_user_return_notifier(struct task_struct *p) {}") != NULL) {
+    if (strstr(var_ref, "(w += f(x, y, z) + in, w = (w<<s | w>>(32-s)) + x)") != NULL) {
       int test = 1;
     }
     
@@ -755,7 +755,7 @@ struct list* var_get_local_var_refs(const char* var_name, const char* func_name,
                                     ssize_t func_start_line,
                                     bool is_define,
                                     struct list** global_var_refs) {
-  if (strcmp(var_name, "ptsid") == 0 && strcmp(func_name, "selinux_setprocattr") == 0) {
+  if (strcmp(var_name, "otheru") == 0 && strcmp(func_name, "unix_stream_connect") == 0) {
     int test = 1;
   }
   const char* original_var_name = var_name;
@@ -781,8 +781,8 @@ struct list* var_get_local_var_refs(const char* var_name, const char* func_name,
       
       if (strcmp(var_ref_arr[1], func_name) == 0) {
         is_local_var = get_local_ref(var_name, var_ref, (const char**) var_ref_arr,
-                                     func_name, is_local_var, local_var_refs,
-                                     &num_invalid_refs);
+                                     func_name, is_local_var, num_local_refs == 0,
+                                     local_var_refs, &num_invalid_refs);
         num_local_refs++;
       } else {
         list_append(non_local_refs, var_ref);
@@ -913,8 +913,8 @@ static struct list* get_local_var_refs_from_src(struct list* var_refs, const cha
     if (strcmp(var_ref_arr[0], src_file) == 0 && func_start_line <= ref_line &&
         func_end_line >= ref_line) {
       is_local_var = get_local_ref(var_name, var_ref, (const char**) var_ref_arr,
-                                   func_name, is_local_var, local_var_refs,
-                                   &num_invalid_refs);
+                                   func_name, is_local_var, num_local_refs == 0,
+                                   local_var_refs, &num_invalid_refs);
       num_local_refs++;
     } else {
       list_append(non_local_refs, var_ref);
@@ -936,7 +936,7 @@ static struct list* get_local_var_refs_from_src(struct list* var_refs, const cha
 }
 
 static bool get_local_ref(const char* var_name, const char* var_ref, const char** var_ref_arr,
-                          const char* func_name, bool is_local_var,
+                          const char* func_name, bool is_local_var, bool is_first_ref,
                           struct list* local_var_refs, size_t* num_invalid_refs) {
   const char* full_var_ref = file_get_multiline_expr(var_ref, var_ref_arr,
                                                      *num_invalid_refs > 0);
@@ -949,6 +949,13 @@ static bool get_local_ref(const char* var_name, const char* var_ref, const char*
   }
   if (!is_local_var) {
     is_local_var = check_is_var_declaration(var_name, full_var_ref);
+    if (!is_local_var && is_first_ref) {
+      full_var_ref = file_get_multiline_expr(var_ref, var_ref_arr, true);
+      char* san_var_ref = sanitize_remove_casts(full_var_ref);
+      full_var_ref = san_var_ref;
+      utils_free_if_different((char*) full_var_ref, san_var_ref);
+      is_local_var = check_is_var_declaration(var_name, san_var_ref);
+    }
     //if (is_local_var) {
     //  list_append(non_local_refs, var_ref);
     //  return true;
@@ -996,8 +1003,10 @@ static void handle_entry_point_return(hash_map func_ret_map, bool record_match) 
       func_get_curr_func_arg_names(ret_func, func_src);
       status = func_get_func_decl(ret_func, func_src, &ret_func_decl, &func_src_tmp,
                                   &func_start_line_tmp);
-      assert(status == FUNC_DECL_FOUND &&
-             "handle_entry_point_return: function declaration must be loaded");
+      //assert(status == FUNC_DECL_FOUND &&
+      //       "handle_entry_point_return: function declaration must be loaded");
+      fprintf(stderr, "Entrypoint function has invalid declaration: %s\n", ret_func);
+      continue;
     }
     
     //printf("Function return: %s\n", ret_func);

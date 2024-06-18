@@ -85,7 +85,7 @@ void database_read_visited_func_decls(const char* filename) {
 
 void database_read_macros_return_range(const char* filename) {
   macros_return_range_file = fopen(filename, "a+");
-  if (visited_func_decls_file == NULL) {
+  if (macros_return_range_file == NULL) {
     perror("Could not open database: ");
     return;
   }
@@ -94,12 +94,16 @@ void database_read_macros_return_range(const char* filename) {
   do {
     macro = read_database_string(macros_return_range_file);
     if (macro != NULL) {
+      if (strcmp(macro, "TLV_DATA") == 0) {
+        int test = 1;
+      }
       char* source_file = read_database_string(macros_return_range_file);
       size_t return_start;
       fread(&return_start, sizeof(size_t), 1, macros_return_range_file);
       size_t return_end;
       fread(&return_end, sizeof(size_t), 1, macros_return_range_file);
-      token_insert_macro_return_entry(macro, source_file, return_start, return_end);
+      token_insert_macro_return_entry(macro, source_file, return_start, return_end,
+                                      false);
     }
   } while (macro != NULL);
 }

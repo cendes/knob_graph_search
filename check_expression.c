@@ -285,6 +285,7 @@ bool check_is_var_declaration(const char* var_name, const char* var_ref) {
           }
         } else if (var_ref[token_start] == ')') {
           is_define_arg = false;
+          is_after_parenthesis = false;
         } else if (var_ref[token_start] == '=') {
           is_after_equals = true;
         } else if (var_ref[token_start] == ';') {

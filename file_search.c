@@ -5,6 +5,7 @@
 #include <assert.h>
 #include "c_keywords.h"
 #include "utils.h"
+#include "database.h"
 #include "sanitize_expression.h"
 #include "token_get.h"
 #include "check_expression.h"
@@ -30,11 +31,13 @@ static bool is_c_source_file(const char* source_file);
 
 static char* get_clean_line(char** line_buf, FILE* f, size_t* buf_size,
                             bool* has_open_comment, size_t* nested_if_0_levels,
-                            size_t* nested_asm_levels, bool* has_open_str);
+                            bool* in_if_0_else_block, size_t* nested_asm_levels,
+                            bool* has_open_str);
 
 static char* remove_comments(char* line_buf, size_t bytes_read,
                              bool* has_open_comment, size_t* nested_if_0_levels,
-                             size_t* nested_asm_levels, bool* has_open_str);
+                             bool* in_if_0_else_block, size_t* nested_asm_levels,
+                             bool* has_open_str);
 
 static bool is_curr_define(char** line);
 
@@ -79,7 +82,7 @@ static void verify_multiline_var_ref(const char* multiline_var_ref,
 
 char* file_get_multiline_expr(const char* var_ref, const char** var_ref_arr,
                               bool has_invalid_code) {
-  if (strstr(var_ref, "net/xfrm/xfrm_policy.c xfrm_policy_inexact_lookup_rcu 1983 struct xfrm_pol_inexact_key k = {") != NULL) {
+  if (strstr(var_ref_arr[1], "codegen_attach_detach") != NULL) {
     int test = 1;
   }
   if (strlen(var_ref) == 0) {
@@ -219,7 +222,7 @@ static void verify_multiline_var_ref(const char* multiline_var_ref,
 }
 
 static char* get_full_expr(const char* source_file, size_t line_number) {
-  if (strcmp(source_file, "fs/ubifs/super.c") == 0) {
+  if (strcmp(source_file, "include/uapi/linux/if_hippi.h") == 0) {
     int test = 1;
   }
   if (strcmp(source_file, "security/tomoyo/group.c") == 0) {
@@ -247,6 +250,7 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
   struct bracket_state* curr_bracket_state = bracket_state_root;
   bool is_else_state = false;
   size_t nested_if_0_levels = 0;
+  bool in_if_0_else_block = false;
   size_t nested_asm_levels = 0;
   bool prev_define = false;
   bool is_cond_directive = false;
@@ -259,13 +263,13 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
   size_t buf_size = 0;
   char* line;
   do {
-    if (curr_line == 1322) {
+    if (curr_line == 79) {
       int test = 1;
     }
     curr_line++;
     line = get_clean_line(&line_buf, f, &buf_size, &has_open_comment,
-                          &nested_if_0_levels, &nested_asm_levels,
-                          &has_open_str);
+                          &nested_if_0_levels, &in_if_0_else_block,
+                          &nested_asm_levels, &has_open_str);
     assert(line != NULL && "get_full_expr: line is NULL");
     //if (line == NULL) {
     //  utils_free_if_different(line, line_buf);
@@ -345,6 +349,9 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
       size_t old_open_block_brackets = open_block_brackets;
       size_t old_open_assignment_brackets = open_assignment_brackets;
       char* last_label;
+      if (in_if_0_else_block) {
+        int test = 1;
+      }
       if (is_else_state) {
         if (curr_bracket_state->parent != NULL) {
           merge_bracket_states(curr_bracket_state->parent, curr_bracket_state,
@@ -352,13 +359,14 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
           curr_bracket_state = curr_bracket_state->parent;
         }
         is_else_state = false;
-      } else {
+      } else if (!in_if_0_else_block) {
         open_block_brackets = restore_previous_bracket_state(&curr_bracket_state,
                                                              &open_block_brackets,
                                                              &open_assignment_brackets,
                                                              &prev_bracket_assign,
                                                              &last_label);
       }
+      in_if_0_else_block = false;
       if (check_is_preprocessor_directive(line, "else") ||
           check_is_preprocessor_directive(line, "elsif")) {
         open_block_brackets = visit_next_bracket_state(line, &curr_bracket_state,
@@ -438,11 +446,6 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
         open_assignment_brackets -= num_close_brackets;
       }
     }
-
-    if (check_is_define(line)) {
-      is_in_macro = true;
-      macro_return_start = curr_line;
-    }
     
     //if (line[0] == '#' && !check_has_mismatched_parenthesis(line)) {
     //  expr[0] = '\0';
@@ -474,6 +477,13 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
       int test = 1;
     }
 
+    if (check_is_define(expr)) {
+      free(macro_name);
+      macro_name = token_find_func_name(expr);
+      is_in_macro = true;
+      macro_return_start = curr_line;
+    }
+
     if ((line[last] == ';' && open_assignment_brackets == 0 &&
          !check_has_mismatched_parenthesis(expr)) ||
         line[last] == '}' ||
@@ -490,20 +500,22 @@ static char* get_full_expr(const char* source_file, size_t line_number) {
       if (curr_line >= line_number) {
         if (is_in_macro && !curr_define && macro_name != NULL) {
           token_insert_macro_return_entry(macro_name, source_file,
-                                          macro_return_start, curr_line);
+                                          macro_return_start, curr_line, true);
+        } else {
+          free(macro_name);
         }
         utils_free_if_different(line, line_buf);
         break;
       } else {
         if (is_in_macro) {
           macro_return_start = curr_line + 1;
-          if (check_is_define(expr)) {
-            macro_name = token_find_func_name(expr);
-          }
+          //if (check_is_define(expr)) {
+          //  macro_name = token_find_func_name(expr);
+          //}
           if (!curr_define) {
             is_in_macro = false;
-            free(macro_name);
-            macro_name = NULL;
+          //  free(macro_name);
+          //  macro_name = NULL;
           }
         }
         expr[0] = '\0';
@@ -560,6 +572,7 @@ ssize_t file_get_func_from_src(const char* source_file, const char* func_name,
   bool is_macro = false;
   bool prev_define = false;
   size_t nested_if_0_levels = 0;
+  bool in_if_0_else_block = false;
   size_t nested_asm_levels = 0;
   bool has_open_comment = false;
   bool has_open_str = false;
@@ -574,7 +587,8 @@ ssize_t file_get_func_from_src(const char* source_file, const char* func_name,
   do {
     curr_line++;
     line = get_clean_line(&line_buf, f, &buf_size, &has_open_comment,
-                          &nested_if_0_levels, &nested_asm_levels, &has_open_str);
+                          &nested_if_0_levels, &in_if_0_else_block,
+                          &nested_asm_levels, &has_open_str);
     if (line == NULL) {
       utils_free_if_different(line, line_buf);
       //free(line_buf);
@@ -646,6 +660,9 @@ ssize_t file_get_func_from_src(const char* source_file, const char* func_name,
 }
 
 ssize_t file_get_func_end_line(const char* source_file, size_t func_start_line) {
+  if (strcmp(source_file, "include/uapi/linux/tipc_config.h") == 0) {
+    int test = 1;
+  }
   if (!is_c_source_file(source_file)) {
     fprintf(stderr, "file_get_func_end_line: not a C souce file: %s\n", source_file);
     return -1;
@@ -664,6 +681,7 @@ ssize_t file_get_func_end_line(const char* source_file, size_t func_start_line) 
   bool is_macro = false;
   bool has_open_comment = false;
   size_t nested_if_0_levels = 0;
+  bool in_if_0_else_block = false;
   size_t nested_asm_levels = 0;
   bool has_open_str = false;
   size_t curr_line = 0;
@@ -671,9 +689,13 @@ ssize_t file_get_func_end_line(const char* source_file, size_t func_start_line) 
   size_t buf_size = 0;
   char* line;
   do {
+    if (curr_line == 257) {
+      int test = 1;
+    }
     curr_line++;
     line = get_clean_line(&line_buf, f, &buf_size, &has_open_comment,
-                          &nested_if_0_levels, &nested_asm_levels, &has_open_str);
+                          &nested_if_0_levels, &in_if_0_else_block,
+                          &nested_asm_levels, &has_open_str);
     if (line == NULL) {
       free_bracket_state_tree(bracket_state_root);
       utils_free_if_different(line, line_buf);
@@ -707,11 +729,12 @@ ssize_t file_get_func_end_line(const char* source_file, size_t func_start_line) 
           curr_bracket_state = curr_bracket_state->parent;
         }
         is_else_state = false;
-      } else {
+      } else if (!in_if_0_else_block) {
         open_brackets = restore_previous_bracket_state(&curr_bracket_state,
                                                        &open_brackets, &tmp_s,
                                                        &tmp_b, &last_label);
       }
+      in_if_0_else_block = false;
       if (check_is_preprocessor_directive(line, "else") ||
           check_is_preprocessor_directive(line, "elsif")) {
         open_brackets = visit_next_bracket_state(line, &curr_bracket_state,
@@ -757,7 +780,8 @@ ssize_t file_get_func_end_line(const char* source_file, size_t func_start_line) 
 
 static char* get_clean_line(char** line_buf, FILE* f, size_t* buf_size,
                             bool* has_open_comment, size_t* nested_if_0_levels,
-                            size_t* nested_asm_levels, bool* has_open_str) {
+                            bool* in_if_0_else_block, size_t* nested_asm_levels,
+                            bool* has_open_str) {
   ssize_t bytes_read = getline(line_buf, buf_size, f);
   if (bytes_read < 0) {
     return NULL;
@@ -765,12 +789,14 @@ static char* get_clean_line(char** line_buf, FILE* f, size_t* buf_size,
   (*line_buf)[bytes_read] = '\0';
 
   return remove_comments(*line_buf, bytes_read, has_open_comment,
-                         nested_if_0_levels, nested_asm_levels, has_open_str);
+                         nested_if_0_levels, in_if_0_else_block, nested_asm_levels,
+                         has_open_str);
 }
 
 static char* remove_comments(char* line_buf, size_t bytes_read,
                              bool* has_open_comment, size_t* nested_if_0_levels,
-                             size_t* nested_asm_levels, bool* has_open_str) {
+                             bool* in_if_0_else_block, size_t* nested_asm_levels,
+                             bool* has_open_str) {
 
   char* line = sanitize_remove_comments_and_strip(line_buf, has_open_comment,
                                                   has_open_str);
@@ -796,6 +822,7 @@ static char* remove_comments(char* line_buf, size_t bytes_read,
            !check_is_preprocessor_macro(line, "elif", "0"))))) {
       assert(*nested_if_0_levels > 0 &&
              "remove_comments: inconsistent nested #if 0 level");
+      *in_if_0_else_block = check_is_preprocessor_directive(line, "else");
       (*nested_if_0_levels)--;
     }
     line[0] = '\0';
@@ -1030,6 +1057,7 @@ char* file_find_struct_name(const char* source_file, size_t line_number) {
   size_t curr_line = 0;
   char* line_buf = NULL;
   size_t nested_if_0_levels = 0;
+  bool in_if_0_else_block = false;
   size_t nested_asm_levels = 0;
   bool has_open_comment = false;
   bool has_open_str = false;
@@ -1037,8 +1065,8 @@ char* file_find_struct_name(const char* source_file, size_t line_number) {
   do {
     curr_line++;
     char* line = get_clean_line(&line_buf, f, &buf_size, &has_open_comment,
-                                &nested_if_0_levels, &nested_asm_levels,
-                                &has_open_str);
+                                &nested_if_0_levels, &in_if_0_else_block,
+                                &nested_asm_levels, &has_open_str);
     if (line == NULL) {
       utils_free_if_different(line, line_buf);
       free(line_buf);
@@ -1096,6 +1124,7 @@ char* file_get_line(const char* source_file, size_t line_number) {
   char* line_buf = NULL;
   char* line = NULL;
   size_t nested_if_0_levels = 0;
+  bool in_if_0_else_block = false;
   size_t nested_asm_levels = 0;
   bool has_open_comment = false;
   bool has_open_str = false;
@@ -1103,7 +1132,8 @@ char* file_get_line(const char* source_file, size_t line_number) {
   do {
     curr_line++;
     line = get_clean_line(&line_buf, f, &buf_size, &has_open_comment,
-                          &nested_if_0_levels, &nested_asm_levels, &has_open_str);
+                          &nested_if_0_levels, &in_if_0_else_block,
+                          &nested_asm_levels, &has_open_str);
     assert(line != NULL && "file_get_line: line cannot be NULL");
   } while(curr_line < line_number);
 
@@ -1121,6 +1151,7 @@ char* file_get_sysctl_table_entry(const char* source_file, size_t line_number,
   char* line_buf = NULL;
   char* line = NULL;
   size_t nested_if_0_levels = 0;
+  bool in_if_0_else_block = false;
   size_t nested_asm_levels = 0;
   bool has_open_comment = false;
   bool has_open_str = false;
@@ -1137,7 +1168,8 @@ char* file_get_sysctl_table_entry(const char* source_file, size_t line_number,
       int tes = 1;
     }
     line = get_clean_line(&line_buf, f, &buf_size, &has_open_comment,
-                          &nested_if_0_levels, &nested_asm_levels, &has_open_str);
+                          &nested_if_0_levels, &in_if_0_else_block,
+                          &nested_asm_levels, &has_open_str);
     assert(line != NULL && "file_get_line: line cannot be NULL");
     if (strlen(line) == 0 || line[0] == '#') {
       utils_free_if_different(line, line_buf);
@@ -1252,6 +1284,7 @@ struct list* file_get_enum_list(const char* enum_name) {
   char* line_buf = NULL;
   char* line = NULL;
   size_t nested_if_0_levels = 0;
+  bool in_if_0_else_block;
   size_t nested_asm_levels = 0;
   bool has_open_comment = false;
   bool has_open_str = false;
@@ -1265,7 +1298,8 @@ struct list* file_get_enum_list(const char* enum_name) {
       int tes = 1;
     }
     line = get_clean_line(&line_buf, f, &buf_size, &has_open_comment,
-                          &nested_if_0_levels, &nested_asm_levels, &has_open_str);
+                          &nested_if_0_levels, &in_if_0_else_block,
+                          &nested_asm_levels, &has_open_str);
     assert(line != NULL && "file_get_enum_list: line cannot be NULL");
     if (strlen(line) == 0 || line[0] == '#') {
       utils_free_if_different(line, line_buf);

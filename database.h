@@ -1,6 +1,8 @@
 #ifndef DATABASE_H
 #define DATABASE_H
 
+#include "hash_map.h"
+
 hash_map database_read_func_vars_visited(const char* filename);
 
 void database_read_visited_func_decls(const char* filename);

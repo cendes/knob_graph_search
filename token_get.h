@@ -14,7 +14,8 @@ char* token_get_func_name(const char* var_ref, size_t args_start_index);
 char* token_get_func_ptr_name(const char* func_ptr_declaration);
 
 void token_insert_macro_return_entry(const char* macro_name, const char* src_file,
-                                     size_t return_start, size_t return_end);
+                                     size_t return_start, size_t return_end,
+                                     bool write_to_disk);
 
 enum TokenReturnType token_get_return_match_node(const char* var_ref,
                                                  const char** var_ref_arr,

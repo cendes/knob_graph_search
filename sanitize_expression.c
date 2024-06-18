@@ -175,9 +175,28 @@ char* sanitize_remove_sizeof(const char* var_ref) {
 }
 
 char* sanitize_remove_string_literals(const char* var_ref, bool* has_open_str) {
+  if (strcmp(var_ref,"fs/proc/consoles.c show_console_dev 51 seq_printf(m, \"%c%c%c (%s)\", con->read ? 'R' : '-',") == 0) {
+    int test = 1;
+  }
   struct list* string_ranges = check_get_string_ranges(var_ref, has_open_str);
   char* new_var_ref = sanitize_remove_substring(var_ref, string_ranges);
   list_free(string_ranges);
+
+  size_t* single_quotes;
+  size_t num_single_quotes = utils_get_char_occurences(new_var_ref, '\'', &single_quotes);
+  for (size_t i = 0; i < num_single_quotes; i++) {
+    size_t end_quote = single_quotes[i] + 2;
+    if (new_var_ref[end_quote] != '\'') {
+      end_quote++;
+    }
+    for (size_t j = single_quotes[i] + 1; j < end_quote; j++) {
+      new_var_ref[j] = '$';
+    }
+    while (i < num_single_quotes && single_quotes[i] < end_quote) {
+      i++;
+    }
+  }
+  free(single_quotes);
   return new_var_ref;
 }
 
@@ -246,7 +265,23 @@ char* sanitize_remove_casts(const char* var_ref) {
         }
 
         if (var_ref[next_char] == '*' || var_ref[next_char] == '&' || var_ref[next_char] == '-') {
-          int test = 1;
+          size_t check_idx = expr_end - 1;
+          while (check_idx > 0 && isspace(var_ref[check_idx])) {
+            check_idx--;
+          }
+          if (var_ref[check_idx] == '*') {
+            is_cast = true;
+          }
+          
+          while (check_idx > 0 && check_is_valid_varname_char(var_ref[check_idx])) {
+            check_idx--;
+          }
+          while (check_idx > 0 && isspace(var_ref[check_idx])) {
+            check_idx--;
+          }
+          if (check_is_valid_varname_char(var_ref[check_idx])) {
+            is_cast = true;
+          }
           // TODO: check if it is really a cast or not
         } else if (utils_char_in_array(C_UNARY_OPERANDS, var_ref[next_char],
                                        UTILS_SIZEOF_ARR(C_UNARY_OPERANDS)) ||
@@ -337,8 +372,8 @@ char* sanitize_remove_substring(const char* var_ref, struct list* substring_indi
 char* sanitize_clean_var_ref(const char* var_ref) {
   bool has_open_str = false;
   char* var_ref_no_str = sanitize_remove_string_literals(var_ref, &has_open_str);
-  assert(!has_open_str &&
-         "sanitize_clean_var_ref: complete expression has open string");
+  //assert(!has_open_str &&
+  //       "sanitize_clean_var_ref: complete expression has open string");
   char* var_ref_no_sizeof = sanitize_remove_sizeof(var_ref_no_str);
   utils_free_if_both_different(var_ref_no_str, var_ref, var_ref_no_sizeof);
   //char* var_ref_no_casts = sanitize_remove_casts(var_ref_no_sizeof);
