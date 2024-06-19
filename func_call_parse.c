@@ -229,7 +229,7 @@ bool func_handle_func_call(const char* var_name,
         //if (additional_funcs != NULL) {
         //  var_func_extend_unique(funcs, additional_funcs);
         //}
-        if (check_is_arg_assignment(assigned_root_name, calling_func_args)) {
+        if (assigned_root_name != NULL && check_is_arg_assignment(assigned_root_name, calling_func_args)) {
           assignment_append_out_arg(additional_output_args, assigned_root_name, assigned_hierarchy);
         }
         var_out_arg_extend_unique(*output_vars, additional_output_args);

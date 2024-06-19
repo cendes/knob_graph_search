@@ -4,6 +4,7 @@
 #include "list.h"
 #include "hash_map.h"
 #include "call_graph.h"
+#include "database.h"
 #include "utils.h"
 #include "check_expression.h"
 #include "struct_parse.h"
@@ -25,7 +26,9 @@ static void get_func_callers(struct call_graph* graph, const char* func_name,
 static void get_callers_in_refs(struct call_graph* graph, const char* func_name,
                                 const char* func_alias_root,
                                 struct list* struct_hierarchy,
-                                struct list* func_refs, size_t curr_depth);
+                                struct list* func_refs,
+                                struct func_var_entry* func_entry,
+                                size_t curr_depth);
 
 static void check_func_calls(struct call_graph* graph, const char* func_name,
                             const char* func_alias_root,
@@ -42,29 +45,55 @@ void expand_call_graph(struct call_graph* graph, struct list* funcs) {
 static void get_func_callers(struct call_graph* graph, const char* func_name,
                              const char* func_alias_root,
                              struct list* struct_hierarchy, size_t curr_depth) {
-  char cmd[256];
-  sprintf(cmd, "cscope -d -L0 %s", func_alias_root);
-  struct list* func_refs = utils_get_cscope_output(cmd);
+  struct func_var_entry* entry = var_get_func_var_entry(func_name, "<func>");
+  struct list* func_refs;
+  if (entry == NULL) {
+    char cmd[256];
+    sprintf(cmd, "cscope -d -L0 %s", func_alias_root);
+    func_refs = utils_get_cscope_output(cmd);
+    entry = var_create_func_var_entry(func_name, "<func>");
+    entry->var_refs = func_refs;
+  } else {
+    func_refs = entry->var_refs;
+  }
   get_callers_in_refs(graph, func_name, func_alias_root, struct_hierarchy,
-                      func_refs, curr_depth);
+                      func_refs, entry, curr_depth);
 }
 
 static void get_callers_in_refs(struct call_graph* graph, const char* func_name,
                                 const char* func_alias_root,
                                 struct list* struct_hierarchy,
-                                struct list* func_refs, size_t curr_depth) {
+                                struct list* func_refs,
+                                struct func_var_entry* func_entry,
+                                size_t curr_depth) {
   if (curr_depth >= MAX_DEPTH ||
       utils_str_in_array(FUNCS_TO_IGNORE, func_name, UTILS_SIZEOF_ARR(FUNCS_TO_IGNORE))) {
     return;
   }
-  if (strcmp(func_name, "SYSCALL_DEFINE3") == 0) {
-    int test = 1;
+  struct list* full_func_refs = func_entry->full_var_refs;
+
+  struct list* new_full_func_refs;
+  struct list_node* curr_full_func_ref;
+  if (full_func_refs == NULL) {
+    new_full_func_refs = list_create();
+  } else {
+    curr_full_func_ref = full_func_refs->head;
   }
+  
+  
   for (struct list_node* curr_ref = func_refs->head; curr_ref != NULL; curr_ref = curr_ref->next) {
     char* func_ref = (char*) curr_ref->payload;
     char** func_ref_arr;
     size_t func_ref_arr_len = utils_split_str(func_ref, &func_ref_arr);
-    func_ref = file_get_multiline_expr(func_ref, (const char**) func_ref_arr, false);
+
+    if (full_func_refs == NULL) {
+      func_ref = file_get_multiline_expr(func_ref, (const char**) func_ref_arr, false);
+      list_append(new_full_func_refs, func_ref);
+    } else {
+      func_ref = (char*) curr_full_func_ref->payload;
+      curr_full_func_ref = curr_full_func_ref->next;
+    }
+    
     if (!check_is_var_declaration(func_alias_root, func_ref)) {
       if (check_is_func(func_ref)) {
         if (strcmp(func_ref_arr[1], "<global>") == 0) {
@@ -100,6 +129,11 @@ static void get_callers_in_refs(struct call_graph* graph, const char* func_name,
     /*   } */
       } 
     }
+  }
+
+  if (full_func_refs == NULL) {
+    func_entry->full_var_refs = new_full_func_refs;
+    database_write_func_vars_visited_entry(func_name, "<func>", func_entry);
   }
 }
 

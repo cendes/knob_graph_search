@@ -399,6 +399,16 @@ static bool do_local_knob_table_search(const char* var_name, size_t table_index,
 static bool handle_table_entry_assignment(const char* var_ref, char** var_ref_arr,
                                           const char* var_name, size_t table_index,
                                           struct list** enum_list) {
+  const char* curr_var_ref = var_ref;
+  for (size_t i = 0; i < 3; i++) {
+    if (strstr(curr_var_ref, var_ref_arr[i]) == curr_var_ref) {
+      curr_var_ref += strlen(var_ref_arr[i]) + 1;
+    } else {
+      curr_var_ref = var_ref;
+      break;
+    }
+  }
+  var_ref = curr_var_ref;
   const char* entry_assignment_ptr = strstr(var_ref, var_name);
   if (token_get_eq_index(entry_assignment_ptr) > 0) {
     const char* array_idx_ptr = entry_assignment_ptr + strlen(var_name);
@@ -985,6 +995,9 @@ static void handle_entry_point_return(hash_map func_ret_map, bool record_match) 
     char** func_key_arr;
     utils_split_str(func_key, &func_key_arr);
     const char* ret_func = func_key_arr[0];
+    if (strcmp(ret_func, "mctp_default_net") == 0 || strcmp(ret_func, "setup_pre_routing") == 0 ) {
+      continue;
+    }
     const char* func_src = func_key_arr[1];
     if (strcmp(ret_func, "write_threads") == 0) {
       int test = 1;

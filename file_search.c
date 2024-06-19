@@ -82,9 +82,9 @@ static void verify_multiline_var_ref(const char* multiline_var_ref,
 
 char* file_get_multiline_expr(const char* var_ref, const char** var_ref_arr,
                               bool has_invalid_code) {
-  if (strstr(var_ref_arr[1], "codegen_attach_detach") != NULL) {
-    int test = 1;
-  }
+  //if (strstr(var_ref_arr[1], "codegen_attach_detach") != NULL) {
+  //  int test = 1;
+  //}
   if (strlen(var_ref) == 0) {
     return (char*) var_ref;
   }

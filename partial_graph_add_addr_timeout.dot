@@ -1,0 +1,6 @@
+digraph "/home/cendes/Documents/masters_thesis/ocloz/knob_graph_search/./partial_graph_add_addr_timeout.dot" {
+	 mptcp_pernet_set_defaults -> _ROOT_
+	 mptcp_net_init -> mptcp_pernet_set_defaults
+	 mptcp_pernet_new_table -> _ROOT_
+	 mptcp_net_init -> mptcp_pernet_new_table
+}
