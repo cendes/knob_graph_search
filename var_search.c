@@ -123,6 +123,10 @@ int main(int argc, char* argv[]) {
   if (strlen(var_name) > 0) {
     start_knob_var_search(var_name, struct_hierarchy);
   }
+  if (call_graph->num_root_nodes == 0) {
+    fprintf(stderr, "Call graph is empty: %s\n", knob_name);
+    return EXIT_SUCCESS;
+  }
   
   char filename[4096];
   sprintf(filename, "%s/%s/partial_graph_%s.dot", cwd, output_dir, knob_name);
@@ -606,7 +610,7 @@ bool var_get_func_refs(const char* var_name, struct list* struct_hierarchy,
       curr_full_var_ref = curr_full_var_ref->next;
     }
 
-    if (strcmp(func_name, "devinet_init_net") == 0) {
+    if (strcmp(func_name, "BUG_ON") == 0) {
       int test = 1;
     }
 

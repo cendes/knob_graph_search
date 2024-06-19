@@ -476,33 +476,28 @@ char* token_get_sysctl_table_name(const char* var_ref, size_t* assignment_start)
 }
 
 const char* token_get_func_call(const char* var_ref, const char* curr_func) {
-  //if (check_is_func(var_ref)) {
-  if (!check_is_var_declaration(curr_func, var_ref)) {
-    return var_ref;
-  } else {
-    const char* curr_var_ref = var_ref;
-    size_t* args_start_indices;
-    size_t num_start_indices = utils_get_char_occurences(var_ref, '(',
-                                                         &args_start_indices);
-    for (size_t i = 0; i < num_start_indices; i++) {
-      char* func_name = token_get_func_name(var_ref, args_start_indices[i]);
-      if (func_name != NULL) {
-        if (strcmp(func_name, curr_func) == 0) {
-          free(func_name);
-          size_t decl_end =
-            check_recur_with_parenthesis(var_ref, args_start_indices[i] + 1, '(');
-          curr_var_ref += (decl_end + 1);
-        } else {
-          free(func_name);
-          free(args_start_indices);
-          return curr_var_ref;
-        }
+  //bool has_func_declaration = check_is_var_declaration(curr_func, var_ref);
+  const char* curr_var_ref = var_ref;
+  size_t* args_start_indices;
+  size_t num_start_indices = utils_get_char_occurences(var_ref, '(',
+                                                       &args_start_indices);
+  for (size_t i = 0; i < num_start_indices; i++) {
+    char* func_name = token_get_func_name(var_ref, args_start_indices[i]);
+    if (func_name != NULL) {
+      if (check_is_var_declaration(func_name, var_ref)) {
+        free(func_name);
+        size_t decl_end =
+          check_recur_with_parenthesis(var_ref, args_start_indices[i] + 1, '(');
+        curr_var_ref += (decl_end + 1);
+      } else {
+        free(func_name);
+        free(args_start_indices);
+        return curr_var_ref;
       }
     }
-    free(args_start_indices);
   }
-    //}
-
+  free(args_start_indices);
+  
   return NULL;
 }
                                                               

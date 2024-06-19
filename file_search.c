@@ -828,27 +828,27 @@ static char* remove_comments(char* line_buf, size_t bytes_read,
     line[0] = '\0';
   }
 
-  if (*nested_asm_levels == 0 &&
-      (check_is_preprocessor_macro(line, "ifndef", "__ASSEMBLY__") ||
-       check_is_preprocessor_macro(line, "ifdef", "__ASSEMBLY__"))) {
-    *has_open_comment = false;
-    *has_open_str = false;
-    *nested_asm_levels = 1;
-    line[0] = '\0';
-  } else if (*nested_asm_levels > 0) {
-    *has_open_comment = false;
-    *has_open_str = false;
-    if (check_is_preprocessor_directive(line, "if") ||
-        check_is_preprocessor_directive(line, "ifdef") ||
-        check_is_preprocessor_directive(line, "ifndef")) {
-      (*nested_asm_levels)++;
-    } else if (check_is_preprocessor_directive(line, "endif")) {
-      assert(*nested_asm_levels > 0 &&
-             "remove_comments: inconsistent nested #ifdef __ASSEMBLY__ levels");
-      (*nested_asm_levels)--;
-    }
-    line[0] = '\0';
-  }
+  /* if (*nested_asm_levels == 0 && */
+  /*     (check_is_preprocessor_macro(line, "ifndef", "__ASSEMBLY__") || */
+  /*      check_is_preprocessor_macro(line, "ifdef", "__ASSEMBLY__"))) { */
+  /*   *has_open_comment = false; */
+  /*   *has_open_str = false; */
+  /*   *nested_asm_levels = 1; */
+  /*   line[0] = '\0'; */
+  /* } else if (*nested_asm_levels > 0) { */
+  /*   *has_open_comment = false; */
+  /*   *has_open_str = false; */
+  /*   if (check_is_preprocessor_directive(line, "if") || */
+  /*       check_is_preprocessor_directive(line, "ifdef") || */
+  /*       check_is_preprocessor_directive(line, "ifndef")) { */
+  /*     (*nested_asm_levels)++; */
+  /*   } else if (check_is_preprocessor_directive(line, "endif")) { */
+  /*     assert(*nested_asm_levels > 0 && */
+  /*            "remove_comments: inconsistent nested #ifdef __ASSEMBLY__ levels"); */
+  /*     (*nested_asm_levels)--; */
+  /*   } */
+  /*   line[0] = '\0'; */
+  /* } */
 
   return line;
 }
