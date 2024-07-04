@@ -29,5 +29,5 @@ make all
 
 5 - Run the knob search program:
 ```
-./knob_search [name of sysctl knob] linux-5.15.152.tar.gz
+./knob_search [name of sysctl knob] linux-5.15.152
 ```
